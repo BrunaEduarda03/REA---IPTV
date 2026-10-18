@@ -1,0 +1,22 @@
+%% Interação 2: favoritar/desfavoritar um canal (botão estrela)
+%% Usuário → Evento → Handler → Estado → Renderização
+%% Baseado em leitura de PainelDeCanais-BclGcD97.js (componente "l") e catalog-Y4ECXKT4.js (padrão VOD, função "vr"/"Sr")
+
+sequenceDiagram
+    actor U as Usuário
+    participant BTN as <button painel-btn-estrela>
+    participant H as onToggleFav (prop, handler real no nível superior)
+    participant LS as localStorage\n(saimo-tv-favoritos | saimo-vod-favoritos)
+    participant FLAG as localStorage\n(chave "-mudou")
+    participant ST as Estado "favorites" (prop/Context)
+    participant R as Renderização (lista + ícone)
+
+    U->>BTN: clique na estrela do canal
+    BTN->>H: onClick → handler de toggle (evento propagado\ncom stopPropagation para não disparar seleção do canal)
+    H->>LS: lê lista atual (JSON.parse com try/catch)
+    H->>LS: adiciona ou remove o id do canal, salva (JSON.stringify)
+    H->>FLAG: grava/atualiza a chave "-mudou" (sinal de alteração)
+    Note over FLAG: Inferido: provável mecanismo de notificação\npara sincronizar outras partes da UI/abas
+    H->>ST: atualiza o estado "favorites" em memória
+    ST-->>R: novo array "favorites" → re-render
+    R->>U: estrela preenchida (#facc15) se favoritado,\ncontorno vazio caso contrário; pílula "Favoritos"\npassa a incluir/excluir esse canal

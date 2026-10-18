@@ -1,0 +1,23 @@
+%% Interação 1: busca de canal no painel lateral
+%% Usuário → Evento → Handler → Estado → Renderização
+%% Baseado em leitura de PainelDeCanais-BclGcD97.js (componente "u")
+
+sequenceDiagram
+    actor U as Usuário
+    participant IN as <input painel-busca-input>
+    participant H as onChange handler
+    participant S as useState v (texto de busca)
+    participant M1 as useMemo A (filtro)
+    participant M2 as useMemo j (agrupamento)
+    participant R as Renderização (lista)
+
+    U->>IN: digita "band"
+    IN->>H: evento onChange(e)
+    H->>S: y(e.target.value)  // atualiza estado "v"
+    S-->>M1: v mudou → dependência do useMemo "A"
+    M1->>M1: filtra por categoria ativa (b) e por texto\n(name.includes ou category.includes, case-insensitive)
+    M1-->>M2: lista filtrada "A" mudou → dependência do useMemo "j"
+    M2->>M2: agrupa por categoria (ou seção única\nse uma categoria específica estiver ativa)
+    M2-->>R: nova lista agrupada "j"
+    R->>U: re-renderiza linhas de canal filtradas
+    Note over R,U: Se não houver digitação, botão "limpar busca"\nfica oculto; input usa ref T para refoco após limpar

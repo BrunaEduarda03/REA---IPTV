@@ -1,0 +1,25 @@
+%% Interação 3: selecionar/trocar de canal (painel lateral ou grade de EPG)
+%% Usuário → Evento → Handler → Estado → Renderização
+%% Baseado em leitura de PainelDeCanais-BclGcD97.js (componente "l") e tv-C6ATJaLp.js (handler "J" do ProgramGuide)
+
+sequenceDiagram
+    actor U as Usuário
+    participant ROW as linha de canal\n(painel ou grade de EPG)
+    participant SEL as onSelect / onSelectChannel
+    participant AC as Estado "activeChannelId" (nível superior)
+    participant PLY as player.js (carrega stream)
+    participant SUB as store pub/sub "now playing"\n(Um/Zm em player.js)
+    participant R as Renderização
+
+    U->>ROW: clique na linha do canal
+    ROW->>SEL: handler recebe o objeto "channel"
+    SEL->>AC: define canal ativo (muda estado "activeChannelId")
+    opt Seleção veio da grade de EPG (ProgramGuide)
+        SEL->>SEL: fecha o modal da grade (onClose)
+    end
+    AC-->>PLY: player.js reage à mudança de canal ativo
+    PLY->>PLY: escolhe hls.js ou mpegts.js conforme\na URL do stream do canal (não detalhado nesta fase)
+    PLY-->>SUB: nova assinatura: Um(callback) para\nreceber "programa atual" desse canal
+    SUB-->>R: notifica listeners quando o EPG do canal\nmuda (Zm recalcula "current"/"next"/"progress")
+    R->>U: destaque "no ar" na linha ativa,\nvídeo carregando na área central do player
+    Note over PLY: localStorage "tv-last-channel" é\nprovavelmente atualizado (inferido, não lido\no trecho exato de persistência desta chave)

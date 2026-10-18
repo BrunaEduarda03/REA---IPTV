@@ -1,0 +1,51 @@
+%% Fluxo de inicialização — Saimo TV /tv (Fase 02)
+%% Linha sólida = observado diretamente · Linha tracejada = inferido
+
+sequenceDiagram
+    participant N as Navegador
+    participant CF as Cloudflare Pages
+    participant IDX as index.js
+    participant CAT as catalog.js (React core)
+    participant RD as ReactDOM
+    participant TV as tv.js / PainelDeCanais.js
+    participant GH as GitHub (raw)
+    participant MON as saimo-monitor (Worker)
+
+    N->>CF: GET /tv
+    CF-->>N: HTML (fallback SPA) + tags <link modulepreload>
+    Note over N,CF: Observado: E-001, E-003
+
+    N->>IDX: carrega index-*.js (type=module)
+    IDX->>IDX: polyfill de modulepreload
+    Note over IDX: Observado: E-002
+
+    IDX->>CAT: import { React, jsx-runtime, dados... }
+    CAT-->>IDX: módulo React 19.3.0 pronto
+    Note over IDX,CAT: Observado: E-011
+
+    IDX->>RD: createRoot(root).render(<App/>)
+    Note over IDX,RD: Observado (chamada createRoot encontrada em index.js)
+
+    RD->>IDX: monta árvore de componentes
+    IDX->>IDX: renderiza animação de abertura (SVG, ~300ms)
+    Note over IDX: Observado: função Y() com easing e SVG path-draw
+
+    IDX-->>TV: React Router resolve rota "/tv" (RouterProvider)
+    Note over IDX,TV: Inferido: mecanismo exato de troca do splash\npara a rota /tv não foi instrumentado em runtime
+
+    par Carregamento de dados em paralelo
+        CAT->>GH: GET canais.txt / catalogo.txt (?t=cache-bust)
+        GH-->>CAT: lista de canais (texto)
+    and
+        TV->>MON: GET /v1/fontes, /v1/hello
+        MON-->>TV: status de servidores
+    and
+        TV->>TV: new Worker(epgWorker.js)
+        TV->>TV: epgWorker busca guiadetv.com (via /api/proxy),\nPlutoTV XML, iptv-epg.org, open-epg.com
+    end
+    Note over CAT,MON: Observado via captura de rede (Fase 01, E-004, E-005, E-006)
+
+    CAT->>CAT: parseia catálogo, aplica cache local\n(localStorage saimo-catalogo-v2)
+    TV->>N: renderiza "Ao vivo" (aba padrão) com\npainel de canais e player vazio
+
+    Note over N: Estado inicial: "Selecione um canal"\n(observado no screenshot da Fase 01)

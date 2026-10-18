@@ -137,3 +137,185 @@ function tocarHls(video: HTMLVideoElement, url: string) {
 **Como verificar:** o domínio `*.pages.dev` identifica Cloudflare Pages; o domínio `*.workers.dev` identifica um Worker independente.
 
 **Exercício:** não há exercício de implementação aqui (exigiria conta Cloudflare); como exercício conceitual, liste 2-3 motivos pelos quais seria sensato separar "monitoramento de fontes" do site principal em vez de colocá-lo como mais uma Pages Function.
+
+---
+
+## 7. Virtualização manual de listas (origem: E-016, análise de `tv.js` na Fase 02)
+
+**Conceito:** renderizar centenas/milhares de elementos DOM de uma vez (ex.: uma grade de 334 canais × 25 horas de programação) é lento. **Virtualização** é a técnica de renderizar apenas os itens que estão (ou estão prestes a estar) visíveis na viewport, calculando manualmente quais índices mostrar a partir da posição de scroll — e posicionando-os com `transform: translateY()`/`left` em vez de depender do fluxo normal do documento.
+
+**Por que importa:** a grade de EPG do Saimo TV implementa essa técnica **à mão** (sem bibliotecas como `react-window` ou `@tanstack/react-virtual`), recalculando a janela visível a cada evento de scroll (throttled via `requestAnimationFrame`) e a cada redimensionamento (via `ResizeObserver`).
+
+**Exemplo educacional (simplificado, uma dimensão):**
+
+```typescript
+function useJanelaVirtual(scrollRef: React.RefObject<HTMLElement>, alturaItem: number, totalItens: number) {
+  const [janela, setJanela] = useState({ inicio: 0, fim: 20 });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let rafId = 0;
+    const recalcular = () => {
+      const primeiro = Math.floor(el.scrollTop / alturaItem);
+      const visiveis = Math.ceil(el.clientHeight / alturaItem);
+      setJanela({ inicio: Math.max(0, primeiro - 2), fim: Math.min(totalItens, primeiro + visiveis + 2) });
+    };
+    const aoRolar = () => { rafId ||= requestAnimationFrame(() => { rafId = 0; recalcular(); }); };
+    recalcular();
+    el.addEventListener("scroll", aoRolar);
+    return () => { el.removeEventListener("scroll", aoRolar); cancelAnimationFrame(rafId); };
+  }, [scrollRef, alturaItem, totalItens]);
+
+  return janela; // renderize apenas itens[janela.inicio..janela.fim]
+}
+```
+
+**Como verificar:** nas DevTools, aba "Elements", inspecione a grade de EPG do Saimo TV enquanto rola a lista — o número de linhas `<div>` no DOM deve permanecer praticamente constante, independentemente de quantos canais existem no total.
+
+**Exercício:** renderize uma lista de 10.000 itens em uma `<div>` com `overflow-y: auto` e altura fixa, primeiro sem virtualização (observe o lag) e depois aplicando a técnica acima.
+
+---
+
+## 8. Padrão de "store externo" via pub/sub, e `useSyncExternalStore` (origem: E-014)
+
+**Conceito:** quando um dado muda **fora** do ciclo de vida do React (ex.: o "programa atual" de um canal, que muda com o relógio, não com uma ação do usuário), um componente precisa de uma forma de "ouvir" essas mudanças. O padrão clássico é: um objeto externo mantém uma lista de funções "ouvintes" (`listeners`); qualquer um pode se inscrever (`subscribe`) e cancelar a inscrição depois; quando o dado muda, todos os ouvintes são chamados (`notify`).
+
+**Por que importa:** o Saimo TV implementa esse padrão manualmente (visto em `player.js`) combinando-o com `useState` + `useEffect` em vez de usar `useSyncExternalStore` — o hook que o próprio React 18+ introduziu exatamente para esse cenário, e que o Saimo TV já tem disponível (o React 19.3.0 embutido no bundle o inclui), mas não usa na prática.
+
+**Por que `useSyncExternalStore` é preferível ao padrão manual:** o padrão manual (`useState` inicial + `useEffect` que assina e atualiza) pode sofrer de **"tearing"** em React concorrente — partes diferentes da árvore podem, por uma fração de tempo, mostrar valores diferentes do mesmo store durante uma atualização interrompível. `useSyncExternalStore` resolve isso nativamente.
+
+**Exemplo educacional:**
+
+```typescript
+// A "store" externa (fora do React)
+const listeners = new Set<() => void>();
+let valor = 0;
+
+function subscribe(callback: () => void) {
+  listeners.add(callback);
+  return () => listeners.delete(callback);
+}
+
+function getSnapshot() {
+  return valor;
+}
+
+function incrementar() {
+  valor += 1;
+  listeners.forEach((cb) => cb());
+}
+
+// Uso idiomático em um componente
+function Contador() {
+  const valorAtual = useSyncExternalStore(subscribe, getSnapshot);
+  return <button onClick={incrementar}>{valorAtual}</button>;
+}
+```
+
+**Como verificar:** no React DevTools Profiler, compare o comportamento de um componente usando o padrão manual vs. `useSyncExternalStore` sob atualizações rápidas e concorrentes (`startTransition`) — o padrão manual pode mostrar inconsistências momentâneas; o hook nativo não.
+
+**Exercício:** implemente um pequeno "relógio" global (atualiza a cada segundo) como store externo, primeiro com o padrão manual (`useState`+`useEffect`+`subscribe`), depois migre para `useSyncExternalStore`, e compare o código.
+
+---
+
+## 9. Context API + `useReducer` como "Redux caseiro" (origem: E-014)
+
+**Conceito:** o React não precisa de uma biblioteca externa para ter um estado "global" previsível: `useReducer` dá a mecânica de reducer (ação → novo estado), e `createContext`/`useContext` distribui esse estado (e a função `dispatch`) para qualquer componente da árvore sem precisar passar props manualmente em cada nível ("prop drilling").
+
+**Por que importa:** o Saimo TV não usa Redux/Zustand — usa esse padrão nativo do React, com múltiplos Contexts especializados (um para catálogo, outro para favoritos, etc., a julgar pelo número de `createContext` encontrados).
+
+**Exemplo educacional:**
+
+```typescript
+type Estado = { favoritos: Set<string> };
+type Acao = { type: "alternar-favorito"; canalId: string };
+
+function reducer(estado: Estado, acao: Acao): Estado {
+  if (acao.type === "alternar-favorito") {
+    const novo = new Set(estado.favoritos);
+    novo.has(acao.canalId) ? novo.delete(acao.canalId) : novo.add(acao.canalId);
+    return { favoritos: novo };
+  }
+  return estado;
+}
+
+const FavoritosContext = createContext<{ estado: Estado; dispatch: Dispatch<Acao> } | null>(null);
+
+function FavoritosProvider({ children }: { children: React.ReactNode }) {
+  const [estado, dispatch] = useReducer(reducer, { favoritos: new Set() });
+  return <FavoritosContext.Provider value={{ estado, dispatch }}>{children}</FavoritosContext.Provider>;
+}
+```
+
+**Como verificar:** no React DevTools (aba "Components"), componentes que usam `useContext` de um Provider específico aparecem "escutando" esse Provider na árvore.
+
+**Exercício:** converta um `useState` simples de favoritos em um par Context+`useReducer`, e meça (com o Profiler) se componentes não relacionados aos favoritos deixam de re-renderizar quando um favorito muda.
+
+---
+
+## 10. Busca binária sobre dados ordenados por tempo (origem: E-007, `Zm()` em `player.js`)
+
+**Conceito:** quando se tem uma lista ordenada (ex.: programas de um canal, ordenados por horário de início) e precisa-se encontrar rapidamente "qual item cobre o instante X", uma busca linear (`O(n)`) funciona, mas uma **busca binária** (`O(log n)`) é muito mais eficiente — essencial quando esse cálculo roda para cada canal visível, a cada poucos segundos (para manter a barra de "ao vivo" atualizada).
+
+**Por que importa:** o Saimo TV usa esse tipo de busca para encontrar o "programa atual" de um canal dentro de sua lista de programação.
+
+**Exemplo educacional:** ver pseudocódigo da Seção 6.5 de [`02-javascript-analysis.md`](./02-javascript-analysis.md#65-zmcanal--cálculo-do-programa-atual-de-um-canal-playerjs).
+
+**Como verificar:** compare o tempo de execução de uma busca linear vs. binária em um array de 10.000 "programas" ordenados, usando `performance.now()` antes/depois de cada abordagem.
+
+**Exercício:** implemente `buscarIndiceAtual` (Seção 6.5 do documento da Fase 02) do zero, depois escreva testes para os casos de borda: instante antes do primeiro programa, depois do último, e exatamente na borda entre dois programas.
+
+---
+
+## 11. Cache "stale-while-revalidate" feito à mão (origem: E-005, `qm()`/`Bm()` em `player.js`)
+
+**Conceito:** a estratégia *stale-while-revalidate* mostra dados em cache imediatamente (mesmo que "velhos") enquanto, em paralelo ou depois, busca dados novos para atualizar o cache — equilibra responsividade percebida (nunca mostra uma tela vazia enquanto espera a rede) com dados atualizados.
+
+**Por que importa:** o `player.js` do Saimo TV parece implementar uma versão dessa estratégia para o cache de EPG: lê um cache salvo (com timestamp e uma "assinatura" dos canais atuais), e só dispara uma nova busca/merge via Web Worker se o cache estiver "velho demais" ou se a assinatura não bater mais (catálogo mudou).
+
+**Exemplo educacional:**
+
+```typescript
+interface CacheEpg { dados: unknown; assinatura: string; capturadoEm: number; }
+
+const IDADE_MAXIMA_MS = 60 * 60 * 1000; // 1 hora
+
+async function obterEpg(assinaturaAtual: string, cache: CacheEpg | null): Promise<unknown> {
+  const cacheValido = cache && cache.assinatura === assinaturaAtual && Date.now() - cache.capturadoEm < IDADE_MAXIMA_MS;
+  if (cacheValido) return cache.dados; // mostra na hora, mesmo que não seja o mais recente
+  const dadosNovos = await buscarEpgDasFontes();
+  salvarCache({ dados: dadosNovos, assinatura: assinaturaAtual, capturadoEm: Date.now() });
+  return dadosNovos;
+}
+```
+
+**Como verificar:** nas DevTools (aba Network), recarregue a aplicação duas vezes seguidas dentro de 1 hora — se a estratégia estiver correta, a segunda carga deve mostrar o EPG quase instantaneamente (do cache), possivelmente com uma atualização silenciosa depois.
+
+**Exercício:** implemente `obterEpg` acima com uma função `buscarEpgDasFontes` simulada (com `setTimeout`), e teste os três cenários: cache ausente, cache válido, cache expirado.
+
+---
+
+## 12. `ResizeObserver` para UI responsiva orientada a JavaScript (origem: `C()`/`ResizeObserver` em `tv.js`)
+
+**Conceito:** `window.addEventListener('resize', ...)` só dispara quando a **janela inteira** muda de tamanho. `ResizeObserver` observa um **elemento específico**, disparando sempre que suas dimensões mudam — por qualquer motivo (conteúdo interno, flex/grid se ajustando, não só redimensionamento de janela).
+
+**Por que importa:** a grade de EPG do Saimo TV precisa recalcular sua janela virtualizada sempre que o contêiner de scroll muda de tamanho — não apenas quando a janela do navegador muda — por isso usa `ResizeObserver` no próprio elemento de scroll, além de um listener de `resize` na janela para trocar o layout (desktop/mobile).
+
+**Exemplo educacional:**
+
+```typescript
+function useElementoRedimensionado(ref: React.RefObject<HTMLElement>, aoRedimensionar: () => void) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => aoRedimensionar());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, aoRedimensionar]);
+}
+```
+
+**Como verificar:** nas DevTools, abra o painel de dispositivos responsivos e redimensione apenas a largura da viewport (sem recarregar) — a grade de EPG do Saimo TV deve reajustar o layout (densidade de linhas) sem travar nem exigir reload.
+
+**Exercício:** crie um componente com um painel lateral redimensionável (arrastável) e use `ResizeObserver` para logar sua largura a cada ajuste, comparando com uma versão que (incorretamente) tentasse usar apenas o evento `resize` da janela.

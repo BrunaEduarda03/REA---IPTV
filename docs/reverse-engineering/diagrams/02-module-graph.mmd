@@ -1,0 +1,59 @@
+%% Mapa de módulos JavaScript — Saimo TV (Fase 02)
+%% Baseado em: E-002, E-011, E-013 (findings.md)
+%% Setas = "importa de". Agrupamento = origem (bundler/terceiros vs. código próprio).
+
+flowchart LR
+    subgraph Runtime["Runtime do bundler (Rolldown)"]
+        RR["rolldown-runtime.js\nhelpers CJS/ESM"]
+    end
+
+    subgraph Terceiros["Dependências de terceiros"]
+        SCHED["vendor-C784v2VA.js\npacote scheduler (React)"]
+        RDOM["vendor-react.js\nReactDOM 19.3.0 + jsx-runtime"]
+    end
+
+    subgraph AppCore["Núcleo da aplicação"]
+        CATALOG["catalog.js\n(contém React 19.3.0 embutido +\nreact-router-dom + estado/catálogo/\nfavoritos/monitor de fontes)"]
+    end
+
+    subgraph Entry["Entry point"]
+        INDEX["index.js\nbootstrap, modulepreload polyfill,\nanimação de abertura (intro)"]
+    end
+
+    subgraph Rotas["Chunks de rota (lazy)"]
+        TV["tv.js\nProgramGuide (grade de EPG)"]
+        PAINEL["PainelDeCanais.js\npainel lateral de canais"]
+        PLAYER["player.js (1,5 MB)\nhls.js 1.7.3 + mpegts.js +\nCast SDK + categorias + EPG store"]
+        ST["StreamTester.js (não lido)"]
+        APPDL["AppDownload.js (não lido)"]
+        NOV["Novidades.js (não lido)"]
+    end
+
+    subgraph Worker["Web Worker"]
+        EPGW["epgWorker.js\nnormalização e merge de EPG\n(instanciado por player.js)"]
+    end
+
+    RR --> SCHED
+    SCHED --> CATALOG
+    RR --> CATALOG
+    CATALOG --> RDOM
+    RR --> RDOM
+
+    RDOM --> INDEX
+    CATALOG --> INDEX
+    PLAYER --> INDEX
+
+    CATALOG --> TV
+    PLAYER --> TV
+    CATALOG --> PAINEL
+    PLAYER --> PAINEL
+    CATALOG --> PLAYER
+
+    PLAYER -. "new Worker(...)" .-> EPGW
+
+    CATALOG -.-> ST
+    CATALOG -.-> APPDL
+    CATALOG -.-> NOV
+
+    classDef unread stroke-dasharray: 5 5
+    class ST,APPDL,NOV unread

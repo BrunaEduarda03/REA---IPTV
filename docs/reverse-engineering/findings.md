@@ -145,4 +145,95 @@ Registro numerado de descobertas técnicas. Cada entrada segue o modelo abaixo. 
 - **Resultado observado:** Logos vindos de `mondrian.claro.com.br` (CDN da operadora Claro), `i.imgur.com`, `raw.githubusercontent.com`, `upload.wikimedia.org`, `i.postimg.cc`, `img.faz-o-eli.online`, `www.fontedecanais.{me,org,dev,gs}`, `logos.appscms.xyz`, `24horas.cc`, entre outros. Vários desses hosts foram referenciados por URL `http://` (não `https://`), gerando avisos de "Mixed Content" no navegador (automaticamente promovidos para HTTPS pelo Chrome).
 - **Interpretação técnica:** O catálogo (arquivos de texto do GitHub, ver E-004) referencia logos hospedados em uma variedade de serviços gratuitos de imagem/CDN de terceiros, sem padronização de protocolo — típico de uma lista de canais agregada manualmente/colaborativamente ao longo do tempo, onde cada entrada aponta para onde quer que o logo estivesse disponível no momento em que foi adicionada.
 - **Confiança:** alta
-- **Limitações:** Não foi possível confirmar se há um mecanismo de fallback para logos quebrados/indisponíveis.
+- **Limitações:** Não foi possível confirmar se há um mecanismo de fallback para logos quebrados/indisponíveis nesta fase (ver [E-015](#e-015--fallback-de-logo-quebrado-avatar-de-iniciais--cache-de-urls-com-falha), que confirma o mecanismo na Fase 02).
+
+---
+
+## E-011 — Versões exatas de React, ReactDOM e Scheduler; mapa preciso de dependências entre chunks
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Cadeia de dependências entre os bundles JS (Fase 02)
+- **Fonte da evidência:** `research/artifacts/scripts/catalog-Y4ECXKT4.js`, `vendor-react-DYlNHYxM.js`, `vendor-C784v2VA.js`, `rolldown-runtime-hePW80VL.js`
+- **Ferramenta e método:** Leitura direta dos bundles públicos (já baixados na Fase 01) com Python/grep, busca por strings de versão (`version:` seguido de literal) e por assinaturas de código-fonte conhecidas (ex.: a implementação de min-heap do pacote `scheduler` do React).
+- **Resultado observado:** String literal `version:\`19.3.0\`` encontrada tanto em `catalog-Y4ECXKT4.js` quanto em `vendor-react-DYlNHYxM.js`. `vendor-C784v2VA.js` contém a implementação do pacote `scheduler` (funções de heap `unstable_scheduleCallback`/`unstable_now`, idênticas à implementação pública do pacote). `rolldown-runtime-hePW80VL.js` contém apenas helpers de interoperabilidade CJS/ESM (`__commonJS`, `__toESM`-equivalentes, export lazy-getter) gerados pelo bundler Rolldown.
+- **Interpretação técnica:** Mapa de dependências confirmado: `rolldown-runtime` (helpers do bundler) ← `vendor-C784v2VA.js` (pacote `scheduler`) ← `catalog-Y4ECXKT4.js` (contém o **núcleo do React 19.3.0** embutido, além da lógica própria de catálogo/estado da aplicação) ← `vendor-react-DYlNHYxM.js` (contém **ReactDOM 19.3.0**, incluindo `createRoot`). Chunks de feature (`index`, `tv`, `player`, `PainelDeCanais`) importam React a partir de `catalog-Y4ECXKT4.js` via uma função getter compartilhada, em vez de cada chunk re-empacotar sua própria cópia — evidência de **deduplicação de dependências pelo bundler** (o React físico mora em um único chunk, reaproveitado pelos demais).
+- **Confiança:** alta
+- **Limitações:** Não foi possível confirmar por que o Vite/Rolldown escolheu colocar o núcleo do React especificamente dentro do chunk "catalog" em vez de um chunk `vendor-react-core` dedicado — é uma decisão de chunking automática do bundler, não documentada publicamente.
+
+---
+
+## E-012 — Nenhum source map publicamente disponível
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Disponibilidade de source maps para os bundles JS
+- **Fonte da evidência:** Requisições `GET https://saimo-tv.pages.dev/assets/<arquivo>.js.map` para múltiplos bundles.
+- **Ferramenta e método:** `curl` para cada URL `.js.map` correspondente a um bundle já identificado; inspeção do `Content-Type` retornado.
+- **Resultado observado:** Todas as URLs testadas retornam HTTP 200, mas com `Content-Type: text/html` e corpo idêntico ao `index.html` da SPA (não um JSON de source map). Nenhum arquivo `.js` público declara comentário `//# sourceMappingURL=`.
+- **Interpretação técnica:** O Cloudflare Pages está configurado com um **fallback de SPA** (serve `index.html` para qualquer caminho não correspondente a um arquivo estático real, com status 200). Isso significa que não existem source maps publicados — qualquer leitura de código precisa trabalhar diretamente com o JavaScript minificado/buildado, sem nomes de variáveis ou caminhos de arquivo originais.
+- **Confiança:** alta
+- **Limitações:** Não foi testado se existe um caminho alternativo (ex.: `/_sourcemaps/`) hospedando os maps; dado o comportamento consistente de fallback, não há indício de que isso exista.
+
+---
+
+## E-013 — Rotas e funcionalidades adicionais não exploradas na Fase 01
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Lista de chunks lazy-loaded declarada em `index-B8gNV0IZ.js` (`__vite__mapDeps`)
+- **Fonte da evidência:** `research/artifacts/scripts/index-B8gNV0IZ.js`, início do arquivo (array `__vite__mapDeps`).
+- **Ferramenta e método:** Leitura direta do bundle de entrada.
+- **Resultado observado:** O array de dependências de chunks lista, além dos já conhecidos (`player`, `catalog`, `PainelDeCanais`, `tv`), três pares JS/CSS não observados na Fase 01: `StreamTester-BSeigufZ.js`/`.css`, `AppDownload-Fd5e3eID.js`/`.css`, `Novidades-BsXIPyU-.js`/`.css`.
+- **Interpretação técnica:** Existem ao menos três telas/funcionalidades adicionais além da aba "Ao vivo": um **testador de fontes/stream** ("StreamTester" — provavelmente ligado à verificação de servidores vista em E-006), uma tela de **download do app** (ligada à aba "Baixar app"), e uma tela de **novidades/changelog** ("Novidades"). Nenhuma dessas rotas foi visitada ou capturada nesta sessão.
+- **Confiança:** alta (existência dos chunks) / baixa (conteúdo e comportamento de cada tela, não observados)
+- **Limitações:** Apenas os nomes dos arquivos foram observados; o conteúdo de `StreamTester`, `AppDownload` e `Novidades` não foi lido nesta fase.
+
+---
+
+## E-014 — Gerenciamento de estado: Context + useReducer + "stores" manuais via pub/sub, sem Zustand/Redux
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Padrões de estado em `catalog-Y4ECXKT4.js`, `player-DGAgJsZy.js`, `tv-C6ATJaLp.js`, `PainelDeCanais-BclGcD97.js`
+- **Fonte da evidência:** Ocorrências de `createContext` (13x) e `useContext` (34x) em `catalog-Y4ECXKT4.js`; `useReducer` (2x); função `Um(e){return Dm.add(e),()=>Dm.delete(e)}` em `player-DGAgJsZy.js` (registro de listener em um `Set`, retornando uma função de cancelamento); uso correspondente em `PainelDeCanais-BclGcD97.js`: `useState(()=>a(e.id))` seguido de `useEffect` que chama a função de subscribe e limpa no retorno.
+- **Ferramenta e método:** Leitura direta dos bundles + contagem de ocorrências de padrões de hooks do React com `grep`.
+- **Resultado observado:** `useSyncExternalStore` aparece apenas 2 vezes no bundle, e ambas são a própria definição do hook dentro do código-fonte do React (não uma chamada da aplicação) — ou seja, **a aplicação não usa `useSyncExternalStore` diretamente**. Em vez disso, para dados que mudam fora do ciclo de render do React (ex.: "programa atual" por canal), o padrão observado é: uma função `subscribe(callback)` que adiciona o callback a um `Set` de listeners e devolve uma função de `unsubscribe`; componentes chamam essa função dentro de um `useEffect`, atualizando seu próprio `useState` manualmente quando notificados. Nenhuma string `zustand`, `redux` ou `recoil` foi encontrada em nenhum bundle.
+- **Interpretação técnica:** A aplicação usa **três camadas de estado distintas**: (1) estado local de componente via `useState`/`useReducer` puro; (2) estado compartilhado "estrutural" (ex.: lista de canais, favoritos) via **Context API + `useReducer`** do próprio React; (3) dados que mudam de forma assíncrona/externa ao React (ex.: EPG "ao vivo agora", monitoramento de fontes) via um **padrão manual de pub/sub** (um `Set` de callbacks + funções `subscribe`/`notify`), consumido pelos componentes via `useEffect` + `useState`, sem usar a API oficial `useSyncExternalStore` do React 18/19 feita exatamente para esse caso.
+- **Confiança:** alta
+- **Limitações:** Não foi lida a definição completa do reducer (ações/tipos) nem o Provider de Context raiz da aplicação; a afirmação "sem Zustand/Redux" baseia-se em ausência de fingerprint textual, não em leitura completa de 100% do código (os bundles de 1,5 MB como `player.js` não foram lidos integralmente).
+
+---
+
+## E-015 — Fallback de logo quebrado (avatar de iniciais) e cache de URLs com falha
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Renderização de logos de canal em `tv-C6ATJaLp.js` (componente `F`) e `PainelDeCanais-BclGcD97.js` (componente `c`)
+- **Fonte da evidência:** Função `P(e)` em `tv-C6ATJaLp.js` (gera iniciais a partir do nome do canal); `var N=new Set` + `onError:()=>{e.logo&&N.add(e.logo),n(!0)}` no mesmo arquivo; lógica equivalente (iniciais inline, sem cache de Set) em `PainelDeCanais-BclGcD97.js`.
+- **Ferramenta e método:** Leitura direta dos bundles.
+- **Resultado observado:** Dois componentes distintos (um na grade de EPG, outro no painel de canais) implementam, **de forma independente e ligeiramente diferente**, a mesma ideia: se `channel.logo` for vazio ou a imagem falhar ao carregar (`onError`), renderiza um "avatar" com as iniciais do nome do canal (até 2 letras, maiúsculas) em vez da imagem quebrada. No componente da grade de EPG, URLs que já falharam são guardadas em um `Set` em memória (`N`) para evitar nova tentativa de carregamento em renderizações futuras daquele mesmo logo.
+- **Interpretação técnica:** Confirma e resolve a limitação registrada em [E-010](#e-010--logos-de-canais-agregados-de-múltiplas-fontes-públicas-de-imagem-com-conteúdo-misto-http): existe sim um mecanismo de fallback para logos quebrados. A duplicação da mesma lógica em dois componentes (em vez de um componente `ChannelIcon` compartilhado entre os dois chunks) é um ponto observável de possível reuso perdido — comentado na seção de qualidade (ver `02-javascript-analysis.md`).
+- **Confiança:** alta
+- **Limitações:** Não foi confirmado se os dois componentes (`F` e `c`) são de fato duplicados por decisão consciente (ex.: para evitar acoplar o chunk `tv` ao chunk `PainelDeCanais`) ou um descuido de desenvolvimento — isso é apenas observável como fato de código, a motivação é desconhecida.
+
+---
+
+## E-016 — Lista canônica de categorias revela seções não observadas (Pluto TV, Internacionais, Adulto) e lista de canais de fallback embutida no bundle
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Array de ordenação de categorias e dados de canais embutidos em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Variável local (minificada) com valor `["TV Aberta","Filmes","Series","Esportes","Noticias","Infantil","Documentarios","Entretenimento","Pluto TV","24 Horas","Internacionais","Adulto",...]` em `player-DGAgJsZy.js`, seguida de um array de objetos de canal literais (`category:`, `logo:` etc.) e de uma operação `.filter(e=>e.category!=="Adulto")` aplicada sobre a lista completa para gerar uma variante filtrada.
+- **Ferramenta e método:** Leitura direta do bundle (busca textual pela definição da variável usada como ordenação de categorias, já identificada por importação cruzada a partir de `PainelDeCanais-BclGcD97.js`).
+- **Resultado observado:** Três categorias não visíveis no screenshot da Fase 01 (que mostrava só o início da lista de pílulas, cortado pela largura da tela): **"Pluto TV"** (categoria dedicada aos canais da Pluto TV, cujo EPG é tratado separadamente — ver E-005), **"Internacionais"**, e **"Adulto"**. Também foi encontrado um array de objetos de canal (nome, categoria, logo) **embutido literalmente no bundle**, não buscado via rede — funcionando como lista semente/fallback.
+- **Interpretação técnica:** O catálogo tem mais categorias de conteúdo do que o observado inicialmente, incluindo uma categoria de conteúdo adulto — com ao menos um ponto do código que filtra essa categoria para gerar uma lista "segura" (`Jp`) separada da lista completa (`qp`). Além disso, a aplicação **não depende exclusivamente** do fetch ao GitHub (E-004) para ter uma lista de canais: há uma lista embutida no próprio bundle, provavelmente usada como semente inicial ou fallback caso o fetch externo falhe.
+- **Confiança:** alta (existência da categoria "Adulto" e do filtro) / média (se a lista embutida é de fato usada como fallback em caso de falha de rede, ou serve a outro propósito, como um conjunto "padrão" pré-catálogo-dinâmico)
+- **Limitações:** Não foi investigado em qual contexto exato a lista completa (`qp`) vs. a filtrada (`Jp`) vs. outra variante (`Yp`) são usadas (ex.: se a filtragem de "Adulto" é controlada por um ajuste de usuário/parental control, ou é incondicional em algum fluxo específico). Isso não foi testado ativamente — apenas observado no código estático.
+
+---
+
+## E-017 — Inventário de chaves de `localStorage` revela funcionalidades não documentadas
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Todas as strings compatíveis com nomes de chave de `localStorage` nos bundles JS públicos
+- **Fonte da evidência:** `grep` por padrão `saimo-[a-zA-Z0-9_-]+` em todos os arquivos de `research/artifacts/scripts/`.
+- **Ferramenta e método:** Busca textual direta nos bundles já baixados.
+- **Resultado observado:** Além das 3 chaves já registradas em [E-008](#e-008--persistência-exclusivamente-em-localstorage-sem-cookies), foram encontradas: `saimo-ao-iniciar`, `saimo-buscas-recentes`, `saimo-canais-personalizados` / `-mudou`, `saimo-continuar`, `saimo-dev`, `saimo-entrada`, `saimo-epg-v3` a `saimo-epg-v6`, `saimo-monitor`, `saimo-radios-lista`, `saimo-radios-recentes`, `saimo-sem-cors`, `saimo-tv-canais`, `saimo-tv-favoritos`, `saimo-tv-todos-canais`, `saimo-upscale-4k`, `saimo-upscale-hd`, `saimo-upscaling` / `-mudou`, `saimo-vod-favoritos` / `-mudou`.
+- **Interpretação técnica:** Revela funcionalidades inteiras não exploradas na Fase 01: canais personalizados adicionados pelo usuário, histórico de "continuar assistindo", modo de desenvolvedor (`saimo-dev`), lista de domínios que **não** precisam do proxy CORS (`saimo-sem-cors` — complementa o mecanismo de E-005), favoritos **separados** para TV ao vivo (`saimo-tv-favoritos`) e VOD (`saimo-vod-favoritos`), preferências de nitidez/upscaling (ligadas aos filtros SVG vistos na Fase 01), e **evolução de schema do cache de EPG** (chaves de `v3` a `v6` sugerem pelo menos 4 migrações de formato ao longo do tempo). O padrão recorrente de uma chave de dado + uma chave `-mudou` irmã (ex.: `saimo-vod-favoritos-mudou`) sugere um mecanismo caseiro de notificação de mudança entre partes da aplicação (possivelmente lido via evento `storage` do navegador para sincronizar entre abas, ou apenas como um "dirty flag" interno).
+- **Confiança:** alta (existência das chaves como strings no código) / baixa (o propósito exato de cada uma é inferido pelo nome, não confirmado por leitura do código que as usa em todos os casos)
+- **Limitações:** Nem toda chave teve seu código de leitura/escrita efetivamente localizado e lido; a interpretação de várias delas é baseada no nome da chave (alta legibilidade em português ajuda, mas não é confirmação de comportamento).
