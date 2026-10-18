@@ -115,3 +115,11 @@ Registro cronológico das sessões de investigação: o que foi feito, com qual 
 - Nenhum código-fonte foi copiado para a documentação além de fragmentos curtos de identificação. Nenhuma URL sensível, credencial ou artefato de terceiros foi incluído no que será versionado.
 - **Fase 05 não foi iniciada**, conforme instruído.
 - Próximo passo: apresentar `git status` ao usuário e aguardar autorização explícita de quais arquivos commitar.
+
+## 2026-10-19 — Sessão 6 (continuação): documento de estudo de caso e encerramento com commit
+
+- A pedido do usuário, criado `docs/reverse-engineering/rea-vs-source-analysis.md`: um documento de comparação lado a lado entre as descobertas da engenharia reversa (Fases 01-04) e o código-fonte original, pensado explicitamente como estudo de caso técnico (ex.: para portfólio) além de encerramento do laboratório.
+- Reaproveitada a matriz de rastreabilidade já construída (`auditoria-tecnica-final.md`) para calcular métricas agregadas: 73,5% das descobertas confirmadas, 2,9% corrigidas, 23,5% não reverificadas, 0% refutadas.
+- Três "casos lado a lado" detalhados (seleção de engine de player, mecanismo de servidores desligados, janela de tempo do EPG) com texto de antes/depois, ilustrando tanto o acerto quanto os limites estruturais da engenharia reversa "cega".
+- `README.md` do laboratório atualizado: índice de documentação completo (9 documentos), fases marcadas como concluídas, Fase 05 registrada como "escopo próprio ainda não definido" — alinhado com a intenção do usuário de **não** simplesmente recriar o Saimo TV na próxima fase.
+- Laboratório encerrado nesta rodada de investigação; commit a seguir (ver `progress.md` para o que foi commitado).

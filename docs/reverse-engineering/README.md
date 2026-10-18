@@ -16,9 +16,14 @@ Compreender, de forma progressiva e fundamentada em evidências, como a aplicaç
 
 | Arquivo | Conteúdo |
 |---|---|
-| [`findings.md`](./findings.md) | Registro numerado de descobertas (E-001, E-002, ...) com evidência e confiança |
+| [`findings.md`](./findings.md) | Registro numerado de descobertas (E-001 a E-045) com evidência e confiança |
 | [`architecture.md`](./architecture.md) | Arquitetura observada, módulos, hipóteses arquiteturais |
-| [`learning.md`](./learning.md) | Conceitos aprendidos, explicações e exercícios |
+| [`02-javascript-analysis.md`](./02-javascript-analysis.md) | Fase 02 — módulos JS, estado, componentes, funções |
+| [`03-streaming-player.md`](./03-streaming-player.md) | Fase 03 — arquitetura do player, formatos, protocolos |
+| [`04-data-api-infrastructure.md`](./04-data-api-infrastructure.md) | Fase 04 — dados, APIs, backend, infraestrutura |
+| [`auditoria-tecnica-final.md`](./auditoria-tecnica-final.md) | Auditoria final: inventário funcional completo, matriz de rastreabilidade REA↔código-fonte, plano proposto para Fase 05 |
+| [`rea-vs-source-analysis.md`](./rea-vs-source-analysis.md) | Estudo de caso: engenharia reversa vs. código-fonte original, lado a lado |
+| [`learning.md`](./learning.md) | Conceitos aprendidos, explicações e exercícios (20 conceitos) |
 | [`progress.md`](./progress.md) | Etapa atual, pendências, bloqueios, próxima ação |
 | [`research-log.md`](./research-log.md) | Linha do tempo cronológica das investigações |
 | [`questions.md`](./questions.md) | Dúvidas técnicas e hipóteses a investigar |
@@ -34,6 +39,10 @@ Compreender, de forma progressiva e fundamentada em evidências, como a aplicaç
 ## Fases do laboratório
 
 - **Etapa 0** — Preparação do laboratório (estrutura, documentação). ✅
-- **Etapa 1** — Validação do ambiente REA.
-- **Fase 01** — Reconhecimento técnico do Saimo TV (interface, tecnologias, recursos públicos, navegação/estado, rede, player, arquitetura inicial).
-- Fases futuras — a definir após autorização do usuário, com base nas prioridades levantadas na Fase 01.
+- **Etapa 1** — Validação do ambiente REA. ✅
+- **Fase 01** — Reconhecimento técnico (interface, tecnologias, recursos públicos, navegação/estado, rede, player, arquitetura inicial). ✅
+- **Fase 02** — Engenharia reversa do JavaScript (módulos, estado, componentes, funções). ✅
+- **Fase 03** — Engenharia reversa do streaming e player (formatos, protocolos, ciclo de vida). ✅
+- **Fase 04** — Dados, APIs, backend e infraestrutura. ✅
+- **Verificação cruzada + Auditoria técnica final** — comparação de todas as descobertas contra o código-fonte oficial público (`github.com/gabrielsaimo/Saimo-TV`). ✅
+- **Fase 05** — escopo próprio ainda não definido; aguardando decisão do usuário (ver plano proposto, não executado, em `auditoria-tecnica-final.md`).
