@@ -12,6 +12,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.4.2",
     "@saimotv/shared": "workspace:*",
     "hono": "^4.6.14",
     "zod": "^4.1.13"

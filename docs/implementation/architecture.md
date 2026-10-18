@@ -2,6 +2,8 @@
 
 > **Importante:** esta é a arquitetura da **nossa** aplicação, uma proposta original. Ela é *informada* pelos requisitos funcionais aprendidos em `docs/reverse-engineering/`, mas nenhuma decisão aqui copia a implementação real do Saimo TV — em vários pontos, deliberadamente diverge dela (ver `decisions.md` para o porquê de cada escolha).
 
+> **Nota de status (pós-Sprint 02):** a tabela de stack abaixo reflete o **planejamento inicial** (antes da Sprint 01). A arquitetura **real**, confirmada pelo usuário ao abrir a Sprint 01, é um monorepo Bun Workspaces com backend Hono desde o início (ver ADR-007/ADR-008 em `decisions.md`) — TanStack Query e Zustand já estão em uso desde a Sprint 01, não adiados como a tabela original sugeria. A Seção "Módulo de Catálogo (Sprint 02)", mais abaixo, descreve a arquitetura **efetivamente implementada e testada**.
+
 ## Stack proposta (com justificativa de inclusão/exclusão)
 
 ### Frontend — incluído desde o Sprint 01
@@ -165,3 +167,97 @@ Isso é **decisão de arquitetura própria**, não copiada de lugar nenhum — m
 - Elementos interativos sempre navegáveis por teclado (`tabIndex`, `:focus-visible` visível).
 - Vídeo com `aria-label` descritivo; controles do player com `role="button"`/`aria-pressed` onde aplicável.
 - Layout mobile-first com Tailwind (`sm:`/`md:`/`lg:`), sem duplicar componentes por breakpoint.
+
+---
+
+## Módulo de Catálogo (Sprint 02) — arquitetura efetivamente implementada
+
+### Diagrama de fluxo de dados
+
+Ver [`diagrams/catalog-data-flow.mmd`](./diagrams/catalog-data-flow.mmd) — sequência completa: `CatalogPage` → `useSearchParams` (URL) → `useChannels` (TanStack Query) → `httpClient` → Hono (`catalog.routes`) → `catalog.service` → `catalog.repository` → dados fictícios em memória, e a resposta validada por Zod voltando pelo mesmo caminho.
+
+### Modelos de domínio (`packages/shared/src/schemas/catalog.ts`)
+
+```typescript
+Category  { id, name, slug, description }
+Channel   { id, name, description, categoryId, thumbnail, isFeatured, status }
+ChannelStatus = "available" | "coming_soon" | "unavailable"
+ChannelListQuery  { search?, categoryId?, page, pageSize, sort }
+ChannelListResponse = { items: Channel[], page, pageSize, total, totalPages }  // paginatedSchema<Channel>
+```
+
+Autorais — nasceram do backlog (`backlog.md`), não de nenhuma leitura do código-fonte do Saimo TV. `ChannelListQuery` é o **mesmo** schema usado para validar a query string no backend e para tipar os parâmetros no frontend (ver "Contratos compartilhados" abaixo).
+
+### Organização do módulo de backend (`apps/api/src/modules/catalog/`)
+
+| Arquivo | Responsabilidade | Depende de |
+|---|---|---|
+| `catalog.routes.ts` | Recebe a requisição HTTP, valida entrada (`zValidator`), chama o service, define status code | `catalog.service`, `catalog.schemas` |
+| `catalog.service.ts` | Regra de negócio: busca (accent-insensitive), filtro por categoria, ordenação determinística, paginação | `catalog.repository`, `lib/normalize` |
+| `catalog.repository.ts` | Única camada que sabe de onde os dados vêm — hoje um array em memória | `catalog.fixtures` |
+| `catalog.fixtures.ts` | Os 5 categorias + 20 conteúdos fictícios (dados, não lógica) | — |
+| `catalog.schemas.ts` | Reexporta os schemas Zod de `@saimotv/shared` usados pelas rotas | `@saimotv/shared` |
+| `catalog.test.ts` | 14 testes cobrindo todos os endpoints e casos de erro | `app.ts` (via `app.request(...)`, sem porta de rede real) |
+
+**Por que o service nunca importa `catalog.fixtures` diretamente** (só via `catalog.repository`): essa é exatamente a fronteira que permite, no futuro, trocar o array em memória por uma consulta Drizzle/PostgreSQL sem tocar em uma linha de `catalog.service.ts` — ver "Estratégia futura de persistência" abaixo.
+
+### Contratos compartilhados em ação
+
+```typescript
+// packages/shared — definido uma vez
+export const channelListQuerySchema = z.object({
+  search: z.string().trim().min(1).max(100).optional(),
+  categoryId: z.string().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(50).default(12),
+  sort: channelSortSchema.default("featured_first"),
+});
+
+// apps/api/src/modules/catalog/catalog.routes.ts — valida a query string recebida
+zValidator("query", channelListQuerySchema, (result, c) => { /* ... */ })
+
+// apps/web/src/app/pages/CatalogPage.tsx — interpreta os searchParams da URL
+const query = channelListQuerySchema.parse(Object.fromEntries(searchParams));
+```
+
+O `z.coerce.number()` é o detalhe que faz isso funcionar nos dois lados: tanto a query string HTTP (`?page=2`) quanto o `URLSearchParams` do React Router chegam como **texto**, nunca como número — o mesmo schema resolve a conversão e a validação para ambos.
+
+### Estratégia de cache (TanStack Query)
+
+- `useCategories`: `staleTime: 5 min` — dado quase estático, não vale recarregar a cada navegação.
+- `useChannels`: `staleTime: 30s` + `placeholderData: keepPreviousData` — mantém a página anterior visível (sem "flash" de loading) enquanto uma nova combinação de filtro/página carrega; `queryKey` inclui o objeto `query` inteiro, então cada combinação de busca+categoria+página+ordenação tem seu próprio slot de cache.
+- `useChannel(id)`: `enabled: id.length > 0` — nunca dispara com um id vazio (ex.: durante a primeira renderização antes do React Router resolver `:id`).
+
+### Decisões sobre estado: URL vs. Zustand vs. TanStack Query
+
+| Estado | Onde mora | Por quê |
+|---|---|---|
+| Busca, categoria, página, ordenação | **URL** (`useSearchParams`) | É o que torna a busca reproduzível: recarregar a página (F5), usar voltar/avançar do navegador, ou compartilhar o link devolvem exatamente a mesma visão |
+| Lista de categorias, lista de conteúdos, detalhe de um conteúdo | **TanStack Query** | É "server state" — pode ficar desatualizado, precisa de cache/retry/refetch, a fonte de verdade é a API |
+| Modo de visualização (grade/lista) | **Zustand** (`catalogUiStore`) | Preferência pessoal de "como ver", não parte do que torna um link compartilhável — ninguém espera que um link force o modo de visualização de quem o recebe |
+
+Nenhum desses três é duplicado em outro lugar — por exemplo, o resultado de `useChannels` nunca é copiado para uma store Zustand "só para garantir".
+
+### Estratégia futura de persistência: trocando o repository em memória por Drizzle + PostgreSQL
+
+A interface de `catalogRepository` (`findAllCategories`, `findAllChannels`, `findChannelById`) foi desenhada para ser **a mesma** independentemente de onde os dados vêm. Uma versão futura com Drizzle trocaria só a implementação:
+
+```typescript
+// Versão atual (Sprint 02)
+export const catalogRepository = {
+  findAllChannels(): Channel[] {
+    return [...channelFixtures];
+  },
+  // ...
+};
+
+// Versão futura (ilustrativa — não implementada nesta sprint)
+export const catalogRepository = {
+  async findAllChannels(): Promise<Channel[]> {
+    return db.select().from(channelsTable);
+  },
+  // ...
+};
+```
+
+O que mudaria: (1) as funções passariam a ser `async` (hoje são síncronas, por serem só acesso a um array); (2) `catalog.service.ts` precisaria de `await` nas chamadas ao repository, mas **nenhuma regra de negócio mudaria** — filtro, busca, ordenação e paginação continuariam sendo responsabilidade do service, não do banco (ou, numa evolução posterior, parte disso poderia migrar para a query SQL — uma decisão a ser tomada quando o volume de dados justificar). O schema Zod (`Channel`, `Category`) viraria também o shape das tabelas Drizzle (`drizzle-zod` consegue gerar um a partir do outro). Essa troca **não está planejada para a Sprint 03** — fica registrada aqui como o caminho natural, não como tarefa agendada.

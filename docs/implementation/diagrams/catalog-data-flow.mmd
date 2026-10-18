@@ -1,0 +1,34 @@
+%% Fluxo de dados do catálogo — Sprint 02
+%% Frontend → TanStack Query → API Hono → Service → Repository → Dados fictícios
+
+sequenceDiagram
+    actor U as Usuária
+    participant UI as CatalogPage (React)
+    participant URL as URL (useSearchParams)
+    participant TQ as TanStack Query (useChannels)
+    participant HTTP as httpClient (apiGet)
+    participant API as Hono (catalog.routes)
+    participant SVC as catalog.service
+    participant REPO as catalog.repository
+    participant DATA as catalog.fixtures (em memória)
+
+    U->>UI: digita "pulso" na busca
+    UI->>URL: setSearchParams({ search: "pulso" })
+    URL-->>UI: searchParams mudou → query recalculada (useMemo)
+    UI->>TQ: useChannels(query) — nova queryKey
+    TQ->>TQ: queryKey diferente da anterior → não usa cache, busca de novo
+    TQ->>HTTP: getChannels(query)
+    HTTP->>API: GET /api/channels?search=pulso&page=1&pageSize=12&sort=...
+    API->>API: zValidator valida query com channelListQuerySchema
+    API->>SVC: catalogService.listChannels(query)
+    SVC->>REPO: catalogRepository.findAllChannels()
+    REPO->>DATA: retorna cópia do array em memória
+    DATA-->>REPO: Channel[]
+    REPO-->>SVC: Channel[]
+    SVC->>SVC: filtra por busca/categoria, ordena, pagina
+    SVC-->>API: ChannelListResponse
+    API-->>HTTP: 200 JSON (validado por channelListResponseSchema na origem)
+    HTTP->>HTTP: parse com channelListResponseSchema (frontend)
+    HTTP-->>TQ: ChannelListResponse tipado
+    TQ-->>UI: data, isPending, isError
+    UI->>U: re-renderiza grade filtrada

@@ -1,14 +1,16 @@
 import { NavLink } from "react-router-dom";
 import { useUiStore } from "@/app/store/uiStore";
 
-const NAV_ITEMS = [{ to: "/", label: "Início" }];
+const NAV_ITEMS = [
+  { to: "/", label: "Início", end: true },
+  { to: "/catalogo", label: "Catálogo", end: false },
+];
 
 /**
  * Navegação principal em sidebar — escolha deliberada de layout (não um
  * conjunto de abas horizontais no topo), para que a identidade visual desta
  * aplicação seja estruturalmente diferente da observada no alvo investigado,
- * não só uma troca de cores. Mais itens de navegação chegam junto das
- * features que representam (catálogo, favoritos — Sprint 02+).
+ * não só uma troca de cores.
  */
 export function Sidebar() {
   const isOpen = useUiStore((state) => state.isSidebarOpen);
@@ -25,7 +27,7 @@ export function Sidebar() {
           <NavLink
             key={item.to}
             to={item.to}
-            end
+            end={item.end}
             className={({ isActive }) =>
               `rounded-token px-3 py-2 text-sm font-medium transition-colors ${
                 isActive

@@ -111,6 +111,30 @@ Estas substituem as decisões em aberto do planejamento inicial (abaixo, mantida
 
 ---
 
+## ADR-012 — Módulo de catálogo em camadas: routes → service → repository (Sprint 02)
+
+- **Decisão:** `apps/api/src/modules/catalog/` é dividido em `routes` (HTTP), `service` (regra de negócio) e `repository` (acesso a dados), cada um em arquivo próprio.
+- **Contexto:** instrução explícita do usuário ao abrir a Sprint 02, com o objetivo de já deixar uma fronteira clara para trocar a persistência depois (ver "Estratégia futura de persistência" em `architecture.md`).
+- **Alternativas:** tudo em um único arquivo `catalog.ts` (mais simples agora, mas a troca futura de persistência obrigaria misturar regra de negócio com acesso a dados numa reescrita maior); um ORM "ativo" (ex.: Active Record, onde o próprio modelo sabe se salvar) — mistura responsabilidades que preferimos manter separadas desde já.
+- **Justificativa:** com só 3 endpoints, a separação em camadas é mínima o bastante para não ser "abstração excessiva" (instrução explícita da Sprint 02), mas já paga seu custo ao deixar claro, em `catalog.service.ts`, que **nenhuma linha ali sabe que os dados vêm de um array** — só chama `catalogRepository.findAllChannels()`.
+- **Consequências:** 4 arquivos pequenos em vez de 1 grande; cada um testável/legível isoladamente.
+
+## ADR-013 — `@hono/zod-validator` para validação de entrada nas rotas
+
+- **Decisão:** usar o pacote oficial `@hono/zod-validator` para validar query params (`/api/channels`) e path params (`/api/channels/:id`).
+- **Alternativas:** chamar `.safeParse()` manualmente em cada handler, com um `if (!result.success) return c.json(...)` repetido em cada rota.
+- **Justificativa (quando uma lib resolve um problema mecânico, vale usá-la):** o código que `zValidator` substitui é puramente mecânico — ler `c.req.query()`/`c.req.param()`, validar, formatar erro — sem nenhuma regra de negócio. É o pacote oficial do próprio ecossistema Hono (não uma dependência de terceiros desconhecida), e o terceiro argumento (`hook`) permite customizar o formato do erro 400 para o nosso contrato `ApiError` único, mantendo a resposta de erro consistente em toda a API.
+- **Consequências:** um aviso de peer dependency no `bun install` (`@hono/zod-validator` foi publicado antes do Zod 4 estabilizar certas APIs) — não afetou nenhum teste ou comportamento real; registrado aqui para revisitar se uma atualização futura do pacote remover o aviso.
+
+## ADR-014 — Busca e paginação determinísticas com desempate por `id`
+
+- **Decisão:** toda ordenação (`featured_first`, `name_asc`, `name_desc`) desempata por `id` quando o critério principal resulta em empate.
+- **Contexto:** sem desempate, a ordem de itens com o mesmo valor de comparação dependeria da ordem de inserção do array — que é estável *hoje* (array fixo em memória), mas deixaria de ser uma garantia explícita se a fonte de dados mudar (ex.: para uma consulta SQL sem `ORDER BY` determinístico).
+- **Justificativa:** paginação **só é confiável** se a mesma consulta sempre devolver os itens na mesma ordem — caso contrário, um item pode aparecer em duas páginas (duplicado) ou em nenhuma, dependendo de reordenações não intencionais entre duas requisições.
+- **Consequências:** um teste dedicado (`catalog.test.ts`, "pagina deterministicamente") verifica exatamente essa propriedade — a página 2 nunca repete um id já visto na página 1.
+
+---
+
 ## Decisões do planejamento inicial (histórico — algumas substituídas acima)
 
 1. ~~Localização do código~~ → substituída por ADR-007.

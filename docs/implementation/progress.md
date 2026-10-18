@@ -10,7 +10,7 @@
 
 ---
 
-## Sprint 01 — Fundação Full Stack ✅ Concluída (aguardando aprovação para Sprint 02)
+## Sprint 01 — Fundação Full Stack ✅ Concluída
 
 **Funcionalidades concluídas:**
 - Monorepo com Bun Workspaces (`apps/web`, `apps/api`, `packages/shared`, `packages/config`).
@@ -47,9 +47,46 @@ $ bun run build       → sucesso (apps/api: bundle Bun 225 KB; apps/web: bundle
 
 **Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 02 (catálogo).
 
-## Sprint 02 — Catálogo
+## Sprint 02 — Catálogo Full Stack ✅ Concluída (aguardando aprovação para Sprint 03)
 
-*Ainda não iniciado.*
+**Contexto recuperado antes de começar:** `git status` limpo, Sprint 01 já commitada pelo usuário (`0efc87a`), `bun --version` 1.4.3 confirmado, `bun run typecheck`/`bun run test` reconfirmados verdes antes de qualquer alteração — nenhum bloqueio.
+
+**Funcionalidades concluídas:**
+- Modelos de domínio compartilhados (`Category`, `Channel`, `ChannelListQuery`, `ChannelListResponse`, `ApiError`) em `packages/shared`.
+- Módulo de backend em camadas (`apps/api/src/modules/catalog/`: routes → service → repository → fixtures), com busca accent-insensitive, filtro por categoria, ordenação determinística (3 modos) e paginação determinística.
+- 5 categorias e 20 conteúdos fictícios originais (nomes, descrições e 5 thumbnails SVG próprias, uma por categoria) — nenhum dado do Saimo TV reutilizado.
+- 3 endpoints REST: `GET /api/categories`, `GET /api/channels` (busca/filtro/paginação/ordenação), `GET /api/channels/:id`, com contrato de erro único (`{error, issues?}`) para 400/404/500.
+- `@hono/zod-validator` para validação de query/param, com formatação de erro customizada.
+- Página de catálogo (`/catalogo`): busca com debounce, filtro por categoria (pílulas), alternância grade/lista, paginação, skeleton de loading, estado de erro com "tentar novamente", estado vazio.
+- Página de detalhes (`/catalogo/:id`) com skeleton próprio e tratamento de erro/404.
+- 3 hooks TanStack Query (`useCategories`, `useChannels`, `useChannel`) com `staleTime` e `placeholderData` diferenciados por natureza do dado.
+- Estado de visualização grade/lista em Zustand (`catalogUiStore`); busca/filtro/página inteiramente na URL (`useSearchParams`) — nenhuma duplicação entre os três mecanismos de estado.
+- Sidebar atualizada com o item "Catálogo".
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  12 pass, 0 fail  (3 health + 9 catalog)
+apps/api:         14 pass, 0 fail  (1 health + 13 catalog)
+apps/web:         16 pass, 0 fail  (2 layout + 2 health + 5 ChannelCard + 7 CatalogPage)
+```
+Total: **42 testes, 42 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso (api: 241 KB; web: 462 KB / 143 KB gzip)
+```
+
+**Verificação end-to-end real:** API e frontend iniciados de verdade (`bun run dev:api`/`dev:web`), endpoints testados via `curl` (`/api/categories`, `/api/channels` com busca/filtro, `/api/channels/:id`, 404), e a aplicação carregada em um Chromium real via `mcp__rea__capture_browser_scenario` com uma interação real (clique na pílula "Esportes"). Screenshots confirmaram: grade com 8 cards na primeira página (ordenados com destaques primeiro), thumbnails SVG renderizando corretamente, rótulo "Em breve" no item `coming_soon`, e o filtro por categoria reduzindo a grade para exatamente os 4 canais de Esportes em tempo real, sem nenhum erro de console.
+
+**Problemas encontrados e resolvidos:**
+1. `noUncheckedIndexedAccess: true` (do `tsconfig.base.json`) fazia `mockChannels[0]` tipar como `Channel | undefined` nos testes — corrigido exportando constantes nomeadas (`mockFeaturedChannel`, `mockComingSoonChannel`) em vez de depender de acesso por índice.
+2. `vi` (do Vitest) não era reconhecido em `catalogFixtures.ts` porque o arquivo não é um arquivo de teste (`globals: true` só injeta `vi` durante a execução de testes, não para `tsc` analisar um módulo comum) — corrigido com `import { vi } from "vitest"` explícito.
+3. Um callback `.some(([input]) => ...)` em um teste tipou `input` implicitamente como `any` sob `strict` — corrigido com anotação de tipo explícita no parâmetro.
+4. `bg-danger-muted/40` (modificador de opacidade do Tailwind) não funciona sobre uma cor definida como `var(--cor-hexadecimal)` direta no `tailwind.config.ts` — corrigido removendo o modificador de opacidade (o token já é "mudo" por definição).
+
+**Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 03 (player).
 
 ## Sprint 03 — Player
 
