@@ -1,0 +1,43 @@
+%% Arquitetura do player — Saimo TV (Fase 03)
+%% Baseado em: E-018, E-019, E-020, E-021, E-023 (findings.md)
+%% Linha sólida = observado · Linha tracejada = inferido/hipótese
+
+flowchart TB
+    UI["Interface (ChannelPanel / ProgramGuide)\nseleciona um canal"]
+    STATE["Estado do player\nke = lista de fontes do canal\nAe = índice da fonte atual\nOe = contador de erros de rede\nu = flag de cancelamento (guard)"]
+    DETECT{"Detectores de formato\ntp(url): contém .mpd?\nrp(url): termina em .ts?\n(senão: padrão hls.js)"}
+
+    DASH["Shaka Player\n(chunk lazy: vendor-shaka-*.js)\nsuporta DRM ClearKey"]
+    MPEGTS["mpegts.js\nenableWorker, lazyLoadMaxDuration:180,\nseekType: range"]
+    HLS["hls.js 1.7.3\nenableWorker, lowLatencyMode,\nbackBufferLength:90"]
+
+    PROXY{"ip(url): precisa de proxy?\n(http://, .txt, domínio especial)"}
+    DIRECT["URL usada diretamente"]
+    VIAPROXY["/api/proxy?url=...&referer=...&ua=..."]
+
+    VIDEO["elemento <video>"]
+    WATCHDOG["Watchdogs:\n12s sem primeiro frame\n25s sem avanço de currentTime\n(checado a cada 2s)"]
+    RECOVER{"Já tocou alguma vez\ne travou há pouco?"}
+    SOFT["Recuperação suave\n(reload do engine atual,\nsem trocar de fonte)"]
+    NEXTSRC["Troca para próxima fonte\nke[Ae+1] (T())"]
+    FAIL["Esgotou fontes:\nErro ao carregar o canal"]
+
+    UI --> STATE --> PROXY
+    PROXY -->|sim| VIAPROXY --> DETECT
+    PROXY -->|não| DIRECT --> DETECT
+
+    DETECT -->|".mpd"| DASH
+    DETECT -->|".ts"| MPEGTS
+    DETECT -->|padrão| HLS
+
+    DASH --> VIDEO
+    MPEGTS --> VIDEO
+    HLS --> VIDEO
+
+    VIDEO --> WATCHDOG
+    WATCHDOG -->|problema detectado| RECOVER
+    RECOVER -->|sim| SOFT --> VIDEO
+    RECOVER -->|não| NEXTSRC --> STATE
+    NEXTSRC -.->|fontes esgotadas| FAIL
+
+    classDef inferred stroke-dasharray: 5 5

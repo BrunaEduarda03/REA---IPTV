@@ -319,3 +319,72 @@ function useElementoRedimensionado(ref: React.RefObject<HTMLElement>, aoRedimens
 **Como verificar:** nas DevTools, abra o painel de dispositivos responsivos e redimensione apenas a largura da viewport (sem recarregar) — a grade de EPG do Saimo TV deve reajustar o layout (densidade de linhas) sem travar nem exigir reload.
 
 **Exercício:** crie um componente com um painel lateral redimensionável (arrastável) e use `ResizeObserver` para logar sua largura a cada ajuste, comparando com uma versão que (incorretamente) tentasse usar apenas o evento `resize` da janela.
+
+---
+
+## 13. Detecção de formato de streaming por URL, e a diferença entre HLS/DASH/MPEG-TS (origem: E-018, Fase 03)
+
+**Conceito:** ver explicação didática completa na Seção 2 de [`03-streaming-player.md`](./03-streaming-player.md#2-identificação-dos-formatos-e-protocolos). Em resumo: HLS e DASH segmentam a mídia e descrevem a ordem via um manifesto (texto `.m3u8` ou XML `.mpd`); MPEG-TS "cru" é um fluxo contínuo sem manifesto, entregue por conexão de longa duração.
+
+**Por que importa:** o Saimo TV decide qual biblioteca usar (`hls.js`, Shaka para DASH, ou `mpegts.js`) só **olhando para a extensão/padrão da URL** — uma abordagem simples e pragmática quando não se controla o formato das fontes agregadas de terceiros.
+
+**Exemplo educacional:** ver pseudocódigo `escolherAdaptador` na Seção 8 de `03-streaming-player.md`.
+
+**Como verificar:** abra `https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8` em um player com `hls.js` configurado e observe, nas DevTools, a requisição inicial ao `.m3u8` seguida de requisições de segmentos `.ts`.
+
+**Exercício:** ver Exercício 1 da Seção 10 de `03-streaming-player.md`.
+
+---
+
+## 14. Watchdog de travamento sobre `timeupdate`, em vez de confiar só em `waiting`/`stalled` (origem: E-020, E-024)
+
+**Conceito:** os eventos nativos `waiting`/`stalled` do HTML5 Media nem sempre disparam de forma consistente entre navegadores e engines de streaming para conteúdo **ao vivo**. Uma alternativa mais confiável é monitorar o próprio `currentTime` do vídeo ao longo do tempo real (`performance.now()`): se o tempo do vídeo não avança por X segundos (e o usuário não pausou manualmente), algo está errado — independentemente de quais eventos o navegador decidiu disparar.
+
+**Por que importa:** o Saimo TV implementa exatamente essa estratégia, com dois limiares (12s para o primeiro frame, 25s para travamento contínuo, checado a cada 2s).
+
+**Exemplo educacional:** ver `useVideoWatchdog` na Seção 4 de `03-streaming-player.md`.
+
+**Como verificar:** no DevTools, use o painel de rede para simular "Slow 3G" enquanto reproduz um stream de teste, e observe se sua própria implementação do watchdog dispara de forma mais confiável que apenas escutar `stalled`.
+
+**Exercício:** implemente o watchdog acima e teste três cenários: (1) vídeo pausado manualmente por 30s (não deve disparar), (2) vídeo travado por rede por 30s (deve disparar), (3) vídeo tocando normalmente (nunca dispara).
+
+---
+
+## 15. Guard de condição de corrida em efeitos assíncronos (origem: E-020, "flag `u`")
+
+**Conceito:** quando um `useEffect` dispara uma operação assíncrona (ex.: `await adaptador.anexar(...)`) e o componente/estado muda de novo **antes** dessa operação terminar, o resultado da operação "antiga" pode chegar depois e sobrescrever incorretamente o estado mais recente — um bug clássico de **condição de corrida** em React. A forma idiomática de resolver isso com `fetch` é `AbortController`; para operações que não são `fetch` (como anexar um player de vídeo), o padrão equivalente é uma **flag de cancelamento fechada sobre o escopo do efeito**, checada em cada callback antes de agir.
+
+**Por que importa:** o Saimo TV sofre exatamente esse risco ao trocar de canal rapidamente (o usuário pode clicar em vários canais em sequência antes do primeiro terminar de carregar) e resolve com uma flag booleana `u`.
+
+**Exemplo educacional:**
+
+```typescript
+useEffect(() => {
+  let cancelado = false;
+
+  async function carregar() {
+    const resultado = await operacaoDemorada(canalId);
+    if (cancelado) return; // o efeito já foi "substituído" por uma nova chamada
+    aplicarResultado(resultado);
+  }
+
+  carregar();
+  return () => { cancelado = true; }; // React chama isso ao re-executar o efeito ou desmontar
+}, [canalId]);
+```
+
+**Como verificar:** ver Exercício 2 da Seção 10 de `03-streaming-player.md` — o bug é visualmente óbvio quando reproduzido sem o guard.
+
+**Exercício:** implemente o exemplo acima com uma `operacaoDemorada` que resolve após um atraso aleatório (`Math.random() * 2000`ms), trocando `canalId` rapidamente várias vezes, e confirme que apenas o resultado do `canalId` mais recente é aplicado.
+
+---
+
+## 16. DRM ClearKey e Encrypted Media Extensions (EME) — conceito, não implementação (origem: E-021)
+
+**Conceito:** **DRM** (Digital Rights Management) restringe o uso de conteúdo protegido. **ClearKey** é o esquema de DRM **mais simples** suportado pela API **EME** (Encrypted Media Extensions) dos navegadores: em vez de um sistema proprietário complexo (Widevine, PlayReady, FairPlay), ClearKey usa uma chave simétrica AES, identificada por um `keyId`, entregue diretamente ao player (geralmente pelo próprio serviço que fornece o conteúdo). É o único esquema de DRM que **não depende de um módulo de decodificação proprietário fechado**.
+
+**Por que importa (apenas conceitualmente — não foi testado):** o Shaka Player usado pelo Saimo TV para DASH sabe configurar ClearKey (`configure({drm:{clearKeys:{...}}})`) quando o catálogo fornece um par `keyId:key`. Isso é mencionado aqui **apenas como conceito técnico observado no código**; esta investigação não tentou localizar, usar ou validar nenhuma chave real, por estar fora do escopo ético do laboratório.
+
+**Como funciona, em alto nível:** o navegador, via EME, intercepta os segmentos de mídia criptografados antes de decodificá-los, usa a chave fornecida para decifrá-los, e só então os envia ao decoder de vídeo — tudo isso dentro do sandbox do navegador, sem que o JavaScript da página tenha acesso aos bytes decifrados brutos.
+
+**Exercício (conceitual, sem credenciais reais):** leia a documentação pública do [Shaka Player sobre ClearKey](https://shaka-player-demo.appspot.com/docs/api/tutorial-drm-config.html) e explique, em suas próprias palavras, por que ClearKey é considerado "DRM fraco" (a chave trafega acessível ao código do player) comparado a Widevine/PlayReady (onde a chave nunca é exposta ao JavaScript, só ao módulo de decodificação de hardware/firmware protegido).

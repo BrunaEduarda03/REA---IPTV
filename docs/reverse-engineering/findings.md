@@ -237,3 +237,131 @@ Registro numerado de descobertas técnicas. Cada entrada segue o modelo abaixo. 
 - **Interpretação técnica:** Revela funcionalidades inteiras não exploradas na Fase 01: canais personalizados adicionados pelo usuário, histórico de "continuar assistindo", modo de desenvolvedor (`saimo-dev`), lista de domínios que **não** precisam do proxy CORS (`saimo-sem-cors` — complementa o mecanismo de E-005), favoritos **separados** para TV ao vivo (`saimo-tv-favoritos`) e VOD (`saimo-vod-favoritos`), preferências de nitidez/upscaling (ligadas aos filtros SVG vistos na Fase 01), e **evolução de schema do cache de EPG** (chaves de `v3` a `v6` sugerem pelo menos 4 migrações de formato ao longo do tempo). O padrão recorrente de uma chave de dado + uma chave `-mudou` irmã (ex.: `saimo-vod-favoritos-mudou`) sugere um mecanismo caseiro de notificação de mudança entre partes da aplicação (possivelmente lido via evento `storage` do navegador para sincronizar entre abas, ou apenas como um "dirty flag" interno).
 - **Confiança:** alta (existência das chaves como strings no código) / baixa (o propósito exato de cada uma é inferido pelo nome, não confirmado por leitura do código que as usa em todos os casos)
 - **Limitações:** Nem toda chave teve seu código de leitura/escrita efetivamente localizado e lido; a interpretação de várias delas é baseada no nome da chave (alta legibilidade em português ajuda, mas não é confirmação de comportamento).
+
+---
+
+## E-018 — Seleção de engine de reprodução: três motores distintos, escolhidos por teste de URL
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Lógica de decisão de qual biblioteca de streaming usar, em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Funções `tp(e)`, `np(e)`, `rp(e)`, `ip(e)` em `player-DGAgJsZy.js` (detectores de formato/roteamento), e o bloco de orquestração que as consome (`if(tp(i.url))...else if(rp(i.url)&&mpegts.isSupported())...else if(hls.isSupported())...`).
+- **Ferramenta e método:** Leitura direta do bundle público já baixado (`research/artifacts/scripts/player-DGAgJsZy.js`), busca por métodos característicos de API (`isSupported`, `loadSource`, `attachMedia`, `createPlayer`) para localizar os pontos de orquestração da aplicação (distintos do código interno das próprias bibliotecas).
+- **Resultado observado:**
+  - `tp(e)` → `e.toLowerCase().includes(".mpd")` (detecta **DASH**).
+  - `np(e)` → URL (sem query string) contém `.m3u8`, OU termina em `.txt`, OU contém o domínio `dadinhodetapioca.fun` (detecta **HLS**, usado nos players de rádio/VOD).
+  - `rp(e)` → regex `/\.ts(\?|$)/i` (detecta **MPEG-TS/FLV cru**, usado pelo `mpegts.js`).
+  - No fluxo de TV ao vivo, a ordem de decisão observada é: **DASH** (se `.mpd`) → **mpegts.js** (se `.ts` e suportado) → **hls.js** (caso contrário, usado como padrão/catch-all).
+- **Interpretação técnica:** A aplicação **não depende de um único player**: escolhe dinamicamente entre três motores de reprodução conforme um teste simples sobre a extensão/domínio da URL do stream (não por metadado explícito de "tipo" no catálogo, nem por tentativa-e-erro sequencial entre engines). Isso **resolve a Questão Q-002** registrada na Fase 01.
+- **Confiança:** alta
+- **Limitações:** Não foi possível observar, em runtime, qual URL de stream um canal real específico possui — a lógica de decisão foi confirmada por leitura de código, não por reprodução real de um canal (decisão deliberada, ver seção de metodologia da Fase 03).
+
+---
+
+## E-019 — Proxy de mídia reutiliza o mesmo endpoint `/api/proxy` do EPG, com encaminhamento opcional de Referer/User-Agent
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Roteamento de URLs de stream através do proxy server-side
+- **Fonte da evidência:** Funções `ip(e)`, `ap()`, `op(e)` em `player-DGAgJsZy.js`.
+- **Ferramenta e método:** Leitura direta do bundle.
+- **Resultado observado:** `ip(e)` retorna verdadeiro se a URL da fonte começa com `http://` (não `https://`), OU termina em `.txt`, OU contém o domínio `dadinhodetapioca.fun`. Quando verdadeiro, `op(e)` reescreve a URL para `${origem}/api/proxy?url=<url codificada>`, acrescentando `&referer=` e `&ua=` (user-agent) quando a fonte os especifica.
+- **Interpretação técnica:** O mesmo endpoint de proxy identificado na Fase 01 para contornar CORS ao buscar o EPG de `guiadetv.com` ([E-005](#e-005--epg-agregado-de-quatro-fontes-públicas-processado-em-web-worker-dedicado)) é **reutilizado para entregar o próprio stream de vídeo** quando a fonte é insegura (HTTP puro) ou usa convenções não padrão (extensão `.txt` disfarçada, domínio específico). O encaminhamento de `Referer`/`User-Agent` sugere que algumas fontes de stream exigem esses cabeçalhos para liberar o acesso (uma prática comum de "hotlink protection" em servidores de origem).
+- **Confiança:** alta
+- **Limitações:** Não foi investigado o comportamento do endpoint `/api/proxy` do lado do servidor para mídia (ex.: se ele faz streaming/proxy byte a byte ou buffering completo) — isso exigiria testar com uma reprodução real, o que não foi feito nesta fase.
+
+---
+
+## E-020 — Sistema de recuperação de falhas com múltiplas fontes por canal, watchdogs de congelamento e proteção contra condição de corrida
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Hook/função de inicialização do player de TV ao vivo em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Bloco de código em torno das variáveis locais (minificadas) `ke` (lista de fontes do canal, via `useMemo`), `Ae`/`je` (índice da fonte atual e seu setter), `Oe` (contador de erros de rede, via `useRef`), `u` (flag de cancelamento), `d`/`f`/`p` (flags e timestamps de progresso de reprodução), funções `T` (troca de fonte), `O` (decide recuperar ou trocar), `w` (destrói todos os engines).
+- **Ferramenta e método:** Leitura direta e contextualizada do bundle, acompanhando o fluxo de variáveis entre as diferentes seções do código.
+- **Resultado observado:**
+  - Um canal pode ter **múltiplas fontes alternativas** (`channel.sources: [...]`), montadas em uma lista `ke` via `useMemo`.
+  - Um `setTimeout` de **12 segundos** dispara um aviso ("sem imagem em 12 s") se nenhum frame novo tiver sido exibido ainda.
+  - Um `setInterval` a cada **2 segundos** verifica se `video.currentTime` avançou nos últimos **25 segundos** (ignorando o caso em que o usuário pausou manualmente); se não avançou, trata como "imagem parada".
+  - Ao detectar um problema, a função `O` decide: se o vídeo **já tocou alguma vez** e o travamento é recente, tenta **recuperar sem trocar de fonte** (chama uma função de "retomar" específica do engine ativo, ex. recarregar o `mpegts.js`); caso contrário, chama `T`, que **avança para a próxima fonte da lista** (`ke[Ae+1]`) e tenta novamente; se todas as fontes se esgotarem, exibe "Erro ao carregar o canal. Tente novamente." e registra telemetria de esgotamento.
+  - Uma flag booleana `u` (fechada sobre o escopo do efeito) é checada em todos os callbacks assíncronos (`T`, `O`, `j`/autoplay) antes de agir — um **guard de condição de corrida**: ao trocar de canal novamente antes de uma tentativa anterior terminar (ex.: o `.then()` de uma inicialização DASH assíncrona), essa flag evita que a tentativa antiga interfira no novo canal já selecionado.
+  - Antes de criar qualquer novo player, a função `w()` destrói defensivamente **as três instâncias possíveis** (DASH/mpegts/hls.js), evitando dois players tocando simultaneamente.
+  - Reprodução automática tenta tocar com som; se o navegador bloquear (política de autoplay), ativa modo mudo e tenta novamente.
+- **Interpretação técnica:** Este é um sistema de recuperação de reprodução bastante maduro — combina múltiplas fontes de fallback por canal, dois watchdogs de tempo (inicial e de congelamento contínuo) e um guard explícito contra condições de corrida na troca rápida de canais, respondendo diretamente às perguntas da Seção 3/5 da Fase 03.
+- **Confiança:** alta
+- **Limitações:** Os nomes de função/variável são inferidos por comportamento (minificados); a leitura não cobriu a função `T`/`O` sendo de fato executada em runtime (não houve reprodução real).
+
+---
+
+## E-021 — Shaka Player (terceiro motor) usado para DASH, com suporte a DRM ClearKey — carregado sob demanda
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Suporte a MPEG-DASH em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Função `Xg(e,t,n,r)` em `player-DGAgJsZy.js`, que faz `import('./vendor-shaka-Csozrona.js')` dinamicamente.
+- **Ferramenta e método:** Leitura direta do bundle; localização do array `__vite__mapDeps` local de `player-DGAgJsZy.js`, que lista `vendor-shaka-*.js` como dependência lazy.
+- **Resultado observado:** Ao detectar uma URL `.mpd` (DASH), a aplicação importa dinamicamente um chunk separado contendo o **Shaka Player** (biblioteca de streaming do Google), instala seus polyfills (`polyfill.installAll()`), verifica suporte do navegador (`Player.isBrowserSupported()`), anexa ao elemento de vídeo, e — se a fonte tiver os campos `keyId`/`key` — configura DRM: `a.configure({drm:{clearKeys:{[keyId]:key}}})` (**ClearKey DRM**, um esquema simples de DRM baseado em chave simétrica exposta ao cliente, suportado nativamente pela Encrypted Media Extensions do navegador).
+- **Interpretação técnica:** Corrige e detalha o registro da Fase 01 ([E-007](#e-007--player-de-vídeo-com-hlsjs-173-e-mpegtsjs-embutidos)), que já havia notado a string `shaka` no bundle sem elaborar: trata-se de um **terceiro motor de reprodução**, carregado **sob demanda** (não embutido no bundle principal do player, só baixado quando um canal DASH é de fato selecionado) — o que explica por que o fingerprint de Fase 01 só encontrou a palavra "shaka" como referência textual (o import dinâmico), não o código da biblioteca em si. O suporte a ClearKey confirma que **a aplicação foi projetada para lidar com fontes DRM-protegidas**, quando o catálogo fornecer as chaves correspondentes.
+- **Confiança:** alta
+- **Limitações:** Por decisão deliberada (regras do laboratório — não contornar DRM, não investigar mecanismos de proteção), **não foi investigado se algum canal atualmente ativo no catálogo realmente usa DRM**, nem foi buscada a origem/formato de eventuais chaves reais. Esta entrada documenta apenas a **capacidade do código**, não seu uso real observado.
+
+---
+
+## E-022 — Formato do catálogo de fontes por canal (parcialmente resolve Q-001) + suporte a playlists M3U/M3U8 padrão como entrada alternativa
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Parser de texto do catálogo em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Função de parsing com `switch` sobre palavras-chave em português (`fonte`, `referer`, `nome`, `qualidade`, `agente`, `chave`), e uma segunda função `am(e)` que reconhece `#EXTM3U`/`#EXTINF:` com atributos `tvg-id`, `tvg-logo`, `group-title`.
+- **Ferramenta e método:** Leitura direta do bundle.
+- **Resultado observado:** O parser de catálogo próprio da aplicação interpreta, por canal, linhas chave-valor com os rótulos (em português): `fonte` (adiciona uma nova URL à lista de fontes do canal), `referer`, `nome`, `qualidade`, `agente` (user-agent), e `chave` (no formato `keyId:key`, associada à última fonte adicionada — usada para DRM ClearKey, ver [E-021](#e-021--shaka-player-terceiro-motor-usado-para-dash-com-suporte-a-drm-clearkey--carregado-sob-demanda); entradas malformadas são descartadas). Separadamente, existe uma função `am(e)` que reconhece o **formato de playlist M3U/M3U8 padrão da indústria de IPTV** (diretivas `#EXTM3U`/`#EXTINF:`, atributos `tvg-id`/`tvg-logo`/`group-title`), sugerindo suporte a importar listas de canais nesse formato amplamente usado (fora do formato próprio da aplicação).
+- **Interpretação técnica:** Resolve parcialmente [Q-001](./questions.md): o catálogo próprio do Saimo TV usa um **formato de texto chave-valor próprio**, por linha, com rótulos em português — não é CSV nem JSON. Adicionalmente, a aplicação sabe interpretar **playlists M3U/M3U8 convencionais** (o formato-padrão usado por praticamente todo software/lista de IPTV), o que provavelmente serve tanto para importar fontes de terceiros quanto para a funcionalidade de "canais personalizados" identificada na Fase 02 ([E-017](#e-017--inventário-de-chaves-de-localstorage-revela-funcionalidades-não-documentadas), chave `saimo-canais-personalizados`).
+- **Confiança:** alta (estrutura do parser) / média (não foi lido o conteúdo real de `canais.txt`/`catalogo.txt` para confirmar que eles de fato usam este formato — apenas o código que os parseia)
+- **Limitações:** Não foi feita a leitura do conteúdo real dos arquivos do GitHub nesta fase (ver Q-001 em `questions.md`, ainda parcialmente aberta).
+
+---
+
+## E-023 — Mecanismo de controle de acesso para conteúdo "Adulto"
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Context React relacionado à categoria "Adulto" (ver [E-016](#e-016--lista-canônica-de-categorias-revela-seções-não-observadas-pluto-tv-internacionais-adulto-e-lista-de-canais-de-fallback-embutida-no-bundle) da Fase 02)
+- **Fonte da evidência:** `player-DGAgJsZy.js`: `createContext({isAdultUnlocked:false, unlockAdult:()=>{}, lockAdult:()=>{}})` e um hook de acesso `useContext` correspondente.
+- **Ferramenta e método:** Leitura direta do bundle.
+- **Resultado observado:** Existe um Context React dedicado com um booleano `isAdultUnlocked` e duas funções `unlockAdult`/`lockAdult`, expostos via um hook customizado.
+- **Interpretação técnica:** Confirma e detalha a hipótese levantada na Fase 02 sobre a categoria "Adulto": existe, de fato, um **mecanismo de controle de acesso** (gate) para esse conteúdo, controlado por estado em memória. O mecanismo de "desbloqueio" em si (PIN? confirmação simples? persistido em algum lugar?) não foi localizado nesta leitura.
+- **Confiança:** alta (existência do Context) / baixa (mecanismo real de desbloqueio)
+- **Limitações:** Por ser um mecanismo de controle de acesso, nenhuma tentativa foi feita de acionar, contornar ou testar esse gate, conforme as regras do laboratório.
+
+---
+
+## E-024 — Eventos de mídia HTML5 efetivamente escutados pela aplicação
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `addEventListener` sobre o elemento `<video>` em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Ocorrências literais de `addEventListener(` com nomes de evento nativos do elemento de mídia HTML5.
+- **Ferramenta e método:** Busca textual direta no bundle por `addEventListener(\`<evento>\`` para cada evento candidato da especificação HTML5 Media.
+- **Resultado observado:** Confirmados como escutados pela aplicação: `loadedmetadata`, `canplay`, `playing`, `pause`, `waiting`, `stalled`, `error`, `ended`, `timeupdate`, `progress`, `seeking`, `durationchange`. **Não encontrados** como listener explícito: `loadstart`, `volumechange` (podem ocorrer no navegador, mas a aplicação não parece reagir a eles diretamente via `addEventListener`).
+- **Interpretação técnica:** A aplicação constrói parte de sua própria lógica de recuperação de falhas (E-020) por cima do evento `timeupdate` (detecta progresso real de reprodução) em vez de confiar inteiramente nos eventos nativos `waiting`/`stalled` do navegador — uma escolha de engenharia defensiva, já que esses eventos nativos nem sempre dispara de forma consistente entre navegadores/engines para streams ao vivo.
+- **Confiança:** alta
+- **Limitações:** Ausência de `loadstart`/`volumechange` como string literal não prova definitivamente que não são usados em nenhum lugar (poderiam estar atrás de outra forma de registro, ex. propriedade `onvolumechange` em vez de `addEventListener`) — registrado como "não confirmado", não como "confirmado ausente".
+
+---
+
+## E-025 — Nenhuma evidência de WebRTC
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `player-DGAgJsZy.js` (bundle completo)
+- **Fonte da evidência:** Busca textual por `RTCPeerConnection`, `getUserMedia`, `webrtc`.
+- **Ferramenta e método:** `grep` sobre o bundle completo.
+- **Resultado observado:** Nenhuma ocorrência.
+- **Interpretação técnica:** Não há evidência de que a aplicação utilize WebRTC para reprodução (o que seria incomum para IPTV/broadcast ao vivo tradicional — WebRTC é mais comum em chamadas/conferências ou streaming de ultrabaixa latência ponto-a-ponto). Reforça que os três motores de reprodução identificados (DASH/Shaka, mpegts.js, hls.js) são de fato a totalidade dos mecanismos de mídia da aplicação.
+- **Confiança:** alta (para o arquivo investigado) / média (não se pode descartar 100% o uso em algum chunk não lido, como `StreamTester` ou `AppDownload`)
+- **Limitações:** Apenas `player-DGAgJsZy.js` foi verificado; os chunks `StreamTester`/`AppDownload`/`Novidades` (E-013) não foram lidos.
+
+---
+
+## E-026 — Política de autoplay com fallback para mudo, e volume persistido
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Função de início de reprodução (`j` no trecho analisado) em `player-DGAgJsZy.js`
+- **Fonte da evidência:** `video.play().catch(()=>{video.muted=true; ...; video.play().catch(()=>{})})`, e leitura de um valor de volume de uma ref (`M.current`) aplicada antes do `play()`.
+- **Ferramenta e método:** Leitura direta do bundle.
+- **Resultado observado:** A aplicação tenta reproduzir com som; se o navegador bloquear (política de autoplay, comum em `Chrome`/`Safari` para mídia não iniciada por gesto do usuário), ativa `muted=true` e tenta novamente; se ainda assim falhar, desiste silenciosamente (sem erro visível ao usuário). O volume aplicado antes de tocar vem de uma referência em memória, consistente com a chave `tv-volume` de `localStorage` já identificada na Fase 01 ([E-008](#e-008--persistência-exclusivamente-em-localstorage-sem-cookies)).
+- **Interpretação técnica:** Tratamento padrão e correto da política de autoplay dos navegadores modernos (que só permitem autoplay com som após interação do usuário com o domínio, ou se o conteúdo já estiver mudo).
+- **Confiança:** alta
+- **Limitações:** Não foi confirmado, por leitura direta, que `M.current` é de fato populado a partir do `localStorage["tv-volume"]` (inferência por nome/consistência com E-008, não leitura do trecho exato que inicializa essa ref).

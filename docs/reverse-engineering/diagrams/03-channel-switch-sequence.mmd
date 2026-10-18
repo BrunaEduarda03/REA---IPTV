@@ -1,0 +1,41 @@
+%% Troca de canal — Usuário → Interface → Estado → Player → Mídia → Reprodução
+%% Baseado em: E-018, E-019, E-020, E-026 (findings.md)
+%% Linha sólida = observado diretamente no código · Nota tracejada = inferido
+
+sequenceDiagram
+    actor U as Usuário
+    participant UI as Interface (linha de canal)
+    participant ST as Estado (activeChannelId, ke, Ae)
+    participant GUARD as Flag de cancelamento "u"
+    participant ENG as Engine ativo (hls/mpegts/Shaka)
+    participant VID as elemento <video>
+    participant WD as Watchdogs (12s / 25s)
+
+    U->>UI: clique no canal B (enquanto canal A ainda carrega)
+    UI->>ST: define activeChannelId = B
+    Note over GUARD: useEffect de limpeza do canal A marca\nu = true ANTES de iniciar o canal B\n(evita que callbacks tardios de A afetem B)
+
+    ST->>ST: w() destrói qualquer engine ativo\n(DASH/mpegts/hls, defensivamente)
+    ST->>ST: ke = fontes do canal B (useMemo)\nAe = 0 (primeira fonte)
+    ST->>ENG: cria novo engine conforme detecção\nde formato da fonte ke[0]
+    ENG->>VID: attachMedia / attachMediaElement
+    ST->>WD: inicia timers (12s inicial, 25s periódico a cada 2s)
+    ST->>UI: estado "carregando" (loading=true)
+
+    alt Primeira troca de frame em até 12s
+        VID-->>WD: timeupdate avança
+        WD->>ST: d=true (progrediu), contador de erro zera
+        VID-->>UI: evento "canplay"/"playing" → loading=false
+        UI->>U: vídeo visível, "no ar" destacado na lista
+    else Sem frame em 12s, ou travou por 25s
+        WD->>ST: aciona recuperação
+        alt Já tocou e travamento recente
+            ST->>ENG: recuperação suave (reload sem trocar fonte)
+        else Travamento definitivo ou nunca tocou
+            ST->>ST: Ae = próxima fonte válida em ke
+            ST->>ENG: recria engine com nova fonte (repete o fluxo)
+            Note over ST: Se todas as fontes de ke se esgotarem:\nmensagem "Erro ao carregar o canal.\nTente novamente." + telemetria
+        end
+    end
+
+    Note over GUARD,ENG: Se o usuário trocar de canal de novo\nantes de qualquer etapa acima terminar,\no guard "u" do canal B (agora obsoleto)\nimpede que suas callbacks ainda em voo\ninterfiram no canal C recém-selecionado.

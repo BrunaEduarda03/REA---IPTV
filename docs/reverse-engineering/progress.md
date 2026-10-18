@@ -4,7 +4,7 @@
 
 ## Etapa atual
 
-Etapa 0, Etapa 1, Fase 01 e Fase 02 concluídas. **Aguardando autorização do usuário para iniciar a Fase 03 (Streaming e Player)**, conforme regra 16 de `AGENTS.md` (não avançar automaticamente).
+Etapa 0, Etapa 1, Fase 01, Fase 02 e Fase 03 concluídas. **Aguardando autorização do usuário para iniciar a Fase 04**, conforme regra 16 de `AGENTS.md` (não avançar automaticamente).
 
 ## Tarefas concluídas
 
@@ -12,18 +12,24 @@ Etapa 0, Etapa 1, Fase 01 e Fase 02 concluídas. **Aguardando autorização do u
 - [x] `AGENTS.md` e `CLAUDE.md` criados.
 - [x] Documentação base criada (`README.md`, `findings.md`, `architecture.md`, `learning.md`, `research-log.md`, `questions.md`).
 - [x] MCP REA validado.
-- [x] **Fase 01 — Reconhecimento técnico concluída**: 10 descobertas (E-001 a E-010) cobrindo hospedagem, stack frontend, interface, catálogo, EPG multi-fonte, backend de monitoramento, player, persistência, PWA e logos de terceiros.
-- [x] Repositório git inicializado e publicado em `git@github.com:BrunaEduarda03/REA---IPTV.git` (apenas documentação; `research/artifacts/` excluído via `.gitignore` por conter código de terceiros).
-- [x] **Fase 02 — Engenharia reversa do JavaScript concluída**: 7 novas descobertas (E-011 a E-017), incluindo versão exata do React/ReactDOM (19.3.0), ausência de source maps públicos, rotas adicionais não exploradas (StreamTester, AppDownload, Novidades), padrão de state management (Context+useReducer+pub/sub manual, sem Zustand/Redux), mecanismo de fallback de logo quebrado, categorias ocultas (incl. "Adulto"), e inventário de 19+ chaves de `localStorage`.
-- [x] Criado `docs/reverse-engineering/02-javascript-analysis.md` (mapeamento de módulos, fluxo de inicialização, gerenciamento de estado, 3 interações com diagramas de sequência, componentes, 5 funções com pseudocódigo, avaliação de qualidade).
-- [x] 5 novos diagramas Mermaid criados (`02-module-graph.mmd`, `02-init-flow.mmd`, `02-interacao-busca.mmd`, `02-interacao-favoritar.mmd`, `02-interacao-selecionar-canal.mmd`).
-- [x] `architecture.md` atualizado com o mapa de dependências JS e novos fatos arquiteturais.
-- [x] `learning.md` ampliado com 6 novos conceitos técnicos (total: 12).
+- [x] **Fase 01 — Reconhecimento técnico**: 10 descobertas (E-001 a E-010).
+- [x] Repositório git inicializado e publicado em `git@github.com:BrunaEduarda03/REA---IPTV.git` (apenas documentação; `research/artifacts/` excluído via `.gitignore`).
+- [x] **Fase 02 — Engenharia reversa do JavaScript**: 7 descobertas (E-011 a E-017); criado `02-javascript-analysis.md`; 5 diagramas Mermaid; `learning.md` com 12 conceitos.
+- [x] **Fase 03 — Engenharia reversa do streaming e player**: 9 novas descobertas (E-018 a E-026), incluindo resolução da Q-002 (seleção de engine: DASH/Shaka para `.mpd`, mpegts.js para `.ts`, hls.js como padrão), descoberta de um terceiro motor de reprodução (Shaka Player, lazy-loaded, com suporte a DRM ClearKey — documentado apenas conceitualmente), sistema de recuperação de falhas com múltiplas fontes/watchdogs/guard de corrida, formato do catálogo de fontes por canal (resolve parcialmente Q-001), e Context de controle de acesso para conteúdo "Adulto".
+- [x] Criado `docs/reverse-engineering/03-streaming-player.md` (12 seções: arquitetura, formatos/protocolos, fluxo de troca de canal, ciclo de vida de eventos, buffering, requisições de rede, desempenho, arquitetura educacional própria, comparação técnica hls.js/Shaka/Video.js/nativo, ensino, evidências, desconhecidos).
+- [x] 2 novos diagramas Mermaid (`03-player-architecture.mmd`, `03-channel-switch-sequence.mmd`).
+- [x] `architecture.md` atualizado com a arquitetura de streaming. `learning.md` ampliado com 4 novos conceitos (total: 16).
+- [x] `questions.md` atualizado: Q-002 resolvida, Q-001 parcialmente resolvida, 3 novas questões (Q-007 a Q-009).
+
+## Decisões metodológicas importantes
+
+- A Fase 03 foi conduzida **inteiramente por análise estática de código**, sem iniciar reprodução real de nenhum canal — decisão deliberada para não reproduzir conteúdo de TV ao vivo de terceiros sem autorização explícita e específica do usuário.
+- Onde o código revelou suporte a DRM ClearKey, isso foi documentado apenas como **capacidade observada no código-fonte**, sem qualquer tentativa de uso, extração de chaves reais, ou verificação de quais canais o utilizam (`AGENTS.md`, item 13).
 
 ## Pendências
 
-- [ ] Autorização do usuário para iniciar a Fase 03 (Streaming e Player) — ou outra direção, conforme preferência do usuário.
-- [ ] Commit/push da Fase 02 ao repositório remoto (ainda não solicitado pelo usuário nesta sessão).
+- [ ] Autorização do usuário para iniciar a Fase 04 — ou outra direção (ex.: ler o conteúdo real de `canais.txt`/`catalogo.txt` para resolver Q-001 por completo, ou uma captura de rede real de reprodução, com escopo limitado e autorização explícita, para resolver Q-007).
+- [ ] Commit/push das Fases 02 e 03 ao repositório remoto (ainda não solicitado pelo usuário nesta sessão).
 
 ## Bloqueios
 
@@ -31,4 +37,4 @@ Nenhum bloqueio registrado até o momento.
 
 ## Próxima ação
 
-Aguardar decisão do usuário: autorizar a Fase 03 (recomendações ao final de `02-javascript-analysis.md`), pedir ajuste/aprofundamento na Fase 02, ou commitar o progresso atual no git. Não iniciar nova fase nem implementar o clone sem autorização explícita.
+Aguardar decisão do usuário: autorizar a Fase 04, pedir para resolver alguma questão específica em aberto (Q-001, Q-007, Q-008 — esta última não recomendada), ou commitar o progresso atual no git. Não iniciar nova fase nem implementar o clone sem autorização explícita.
