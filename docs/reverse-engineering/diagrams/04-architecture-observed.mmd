@@ -1,0 +1,63 @@
+%% Diagrama A — Arquitetura OBSERVADA (somente componentes com evidência)
+%% Baseado em: E-001, E-005, E-006, E-019, E-027, E-029, E-030, E-031, E-032 (findings.md)
+
+flowchart TB
+    subgraph Cliente["Navegador"]
+        SPA["SPA React (Vite/Rolldown)"]
+        SW["Service Worker\ncache 'saimo-casca-v1'\n(só shell: HTML/JS/CSS/ícones)"]
+        LS[("localStorage\n19+ chaves")]
+        SPA --- SW
+        SPA --- LS
+    end
+
+    subgraph CFPages["Cloudflare Pages — saimo-tv.pages.dev"]
+        Static["Assets estáticos"]
+        ProxyFn["/api/proxy\n(Pages Function)"]
+        EventsFn["/api/events\n(Pages Function)"]
+    end
+
+    subgraph CFWorker["Cloudflare Worker — saimo-monitor.gabrielsaimo68.workers.dev"]
+        Hello["/v1/hello (POST)"]
+        Fontes["/v1/fontes"]
+        Eventos["/v1/eventos"]
+    end
+
+    subgraph GitHub["GitHub (raw.githubusercontent.com)"]
+        Catalogo["gabrielsaimo/SaimoPlayer\ncanais.txt, catalogo.txt, vod/"]
+        PlutoEPG["matthuisman/i.mjh.nz\nPlutoTV/br.xml"]
+    end
+
+    subgraph EPGExterno["Fontes externas de EPG"]
+        GuiaTV["www.guiadetv.com (via proxy)"]
+        IptvEpg["iptv-epg.org"]
+        OpenEpg["open-epg.com"]
+    end
+
+    subgraph APIsPublicas["APIs públicas de terceiros"]
+        TMDB["TMDB — api.themoviedb.org\n+ image.tmdb.org\n(chave hardcoded no bundle)"]
+        ESPN["ESPN — site.api.espn.com\nscoreboard (~15 ligas)"]
+        OpenSub["OpenSubtitles via Stremio\nopensubtitles-v3.strem.io"]
+    end
+
+    subgraph Terceiros["Origens de stream e imagem (heterogêneas)"]
+        Streams["Dezenas de domínios de stream\n(CDNs comerciais + self-hosted)\n— não enumerados"]
+        Logos["Hosts de imagem diversos\n(imgur, claro, wikimedia, etc.)"]
+    end
+
+    SPA -->|GET assets| Static
+    SPA -->|GET /api/proxy| ProxyFn
+    ProxyFn -->|server-side fetch| GuiaTV
+    ProxyFn -.->|também roteia mídia insegura/especial| Streams
+    SPA -->|GET /api/events| EventsFn
+    SPA -->|POST /v1/hello| Hello
+    SPA -->|GET /v1/fontes| Fontes
+    SPA -->|GET /v1/eventos| Eventos
+    SPA -->|GET canais.txt/catalogo.txt/vod| Catalogo
+    SPA -->|GET br.xml| PlutoEPG
+    SPA -->|GET epg-br.xml, brazil3.xml (via Worker epgWorker)| IptvEpg
+    SPA --> OpenEpg
+    SPA -->|GET /3/... metadados VOD| TMDB
+    SPA -->|GET scoreboard| ESPN
+    SPA -->|GET subtitles| OpenSub
+    SPA -->|GET stream direto| Streams
+    SPA -->|GET logos| Logos

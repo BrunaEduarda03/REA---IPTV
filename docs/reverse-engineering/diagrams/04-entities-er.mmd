@@ -1,0 +1,67 @@
+%% Modelo ER conceitual — Saimo TV (Fase 04)
+%% Baseado em evidências de E-004, E-016, E-022, E-029, E-030 (findings.md)
+%% Nomes de entidade são propostas de modelagem educacional, não nomes reais do sistema.
+
+erDiagram
+    CHANNEL ||--o{ SOURCE : "tem 1..N"
+    CHANNEL }o--|| CATEGORY : "pertence a"
+    CHANNEL ||--o{ PROGRAM : "exibe (EPG)"
+    CHANNEL ||--o| FAVORITE_TV : "pode ser favorito"
+    MEDIA_ITEM }o--|| CATEGORY : "pertence a"
+    MEDIA_ITEM ||--o| FAVORITE_VOD : "pode ser favorito"
+    MEDIA_ITEM ||--o| WATCH_PROGRESS : "tem progresso (continuar assistindo)"
+    PROGRAM }o--|| PROGRAM : "proximo (next)"
+
+    CHANNEL {
+        string id "comprovado (data-channel-id)"
+        string name "comprovado"
+        string logo "comprovado (URL, multiplos hosts)"
+        string category "comprovado (string, nao FK formal)"
+        int channelNumber "comprovado (sequencial)"
+    }
+
+    SOURCE {
+        string url "comprovado (campo 'fonte')"
+        string referer "comprovado (campo 'referer', opcional)"
+        string name "comprovado (campo 'nome', opcional)"
+        string quality "comprovado (campo 'qualidade', opcional)"
+        string userAgent "comprovado (campo 'agente', opcional)"
+        string keyId "comprovado (campo 'chave', formato keyId:key)"
+        string key "comprovado (campo 'chave')"
+    }
+
+    CATEGORY {
+        string name "comprovado (lista canonica: TV Aberta, Filmes, Series, Esportes, Noticias, Infantil, Documentarios, Entretenimento, Pluto TV, 24 Horas, Internacionais, Adulto)"
+    }
+
+    PROGRAM {
+        string id "comprovado"
+        string title "comprovado"
+        datetime startTime "comprovado"
+        datetime endTime "comprovado"
+        string category "comprovado (opcional)"
+        string description "comprovado (opcional, 'sinopse')"
+        string thumbnail "comprovado (opcional)"
+        int season "comprovado (episodeInfo.season, opcional)"
+        int episode "comprovado (episodeInfo.episode, opcional)"
+    }
+
+    MEDIA_ITEM {
+        string id "inferido (VOD, nao detalhado nesta fase)"
+        string title "inferido"
+        string posterPath "comprovado (via TMDB image.tmdb.org)"
+        string contentRatingBR "comprovado (via TMDB content_ratings)"
+    }
+
+    FAVORITE_TV {
+        string channelId "comprovado (localStorage saimo-tv-favoritos)"
+    }
+
+    FAVORITE_VOD {
+        string mediaId "comprovado (localStorage saimo-vod-favoritos)"
+    }
+
+    WATCH_PROGRESS {
+        string mediaId "inferido (localStorage saimo-continuar)"
+        float progressSeconds "inferido, nao confirmado por leitura de codigo"
+    }

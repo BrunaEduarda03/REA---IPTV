@@ -1,0 +1,30 @@
+%% Fluxo 3: Seleção de canal e atualização de metadados de EPG "agora tocando"
+%% Combina evidências de E-005 (Fase 01), E-014/E-020 (Fase 02/03) e a
+%% store pub/sub do player (Zm/Um) — visão focada em DADOS, não em UI.
+
+sequenceDiagram
+    actor U as Usuário
+    participant UI as Linha de canal
+    participant STATE as activeChannelId
+    participant EPGW as epgWorker (Web Worker)
+    participant STORE as Store pub/sub\n"programa atual" (player.js)
+    participant PANEL as PainelDeCanais (consumidor)
+
+    Note over EPGW: Pré-condição (fluxo independente, Fase 01):\nepgWorker já buscou e normalizou EPG\nde 4 fontes no carregamento inicial
+
+    U->>UI: clique no canal "ESPN"
+    UI->>STATE: activeChannelId = "espn"
+
+    STATE->>STORE: componente assina dados do canal "espn"\n(subscribe, useEffect)
+    STORE->>STORE: Zm("espn"): busca binária na lista\nde programas já normalizada pelo EPG
+    STORE-->>PANEL: {current, next, progress}
+
+    PANEL->>U: mostra "agora tocando" + barra de progresso\nna linha do canal ativo
+
+    loop A cada 30s (Fase 02, E-014)
+        STORE->>STORE: recalcula progress (tempo decorrido)
+        STORE-->>PANEL: notifica listeners
+        PANEL->>U: atualiza barra de progresso
+    end
+
+    Note over STORE,PANEL: Observado: o mecanismo de notificação é um\nSet de listeners manual (Um/subscribe), não\numa requisição de rede nova — os dados de EPG\njá estão todos em memória desde o carregamento inicial.

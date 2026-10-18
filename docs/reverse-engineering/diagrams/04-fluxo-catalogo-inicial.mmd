@@ -1,0 +1,29 @@
+%% Fluxo 1: Carregamento inicial do catálogo de canais
+%% Baseado em: E-004, E-008, E-022 (findings.md) — observado nas Fases 01/02
+%% Linha sólida = observado · Nota tracejada = inferido
+
+sequenceDiagram
+    actor U as Usuário
+    participant SPA as SPA (catalog.js)
+    participant LS as localStorage\n(saimo-catalogo-v2)
+    participant GH as raw.githubusercontent.com
+
+    U->>SPA: abre /tv
+    SPA->>LS: lê cache local do catálogo (se existir)
+    LS-->>SPA: catálogo em cache (pode estar desatualizado)
+    SPA->>U: renderiza painel de canais com dado em cache\n(percepção de carregamento instantâneo)
+
+    par Busca em paralelo (observado via rede, Fase 01)
+        SPA->>GH: GET canais.txt?t=<cache-bust>
+        GH-->>SPA: texto (formato chave-valor por linha, E-022)
+    and
+        SPA->>GH: GET catalogo.txt?t=<cache-bust>
+        GH-->>SPA: texto
+    end
+
+    SPA->>SPA: parseia texto (fonte/referer/nome/qualidade/agente/chave)
+    SPA->>SPA: monta lista de Channel + Source[]
+    SPA->>LS: grava novo cache (saimo-catalogo-v2)
+    SPA->>U: re-renderiza painel com dado atualizado\n(se diferente do cache anterior)
+
+    Note over SPA: Inferido: a troca de "cache antigo" para\n"dado novo" provavelmente é silenciosa\n(sem loading spinner), já que o cache\njá preencheu a tela primeiro.

@@ -1,0 +1,57 @@
+%% Diagrama B — Arquitetura PROPOSTA (educacional, independente)
+%% NÃO é a arquitetura original do Saimo TV — proposta própria para um projeto
+%% equivalente com dados/mídia autorizados, referenciada na Seção 8/9 de
+%% docs/reverse-engineering/04-data-api-infrastructure.md
+
+flowchart TB
+    subgraph Cliente["Frontend (React + TypeScript)"]
+        UI["SPA / Next.js"]
+    end
+
+    subgraph Edge["Camada de borda (ex.: CloudFront / API Gateway)"]
+        CDN["CDN de assets estáticos"]
+        Gateway["API Gateway"]
+    end
+
+    subgraph API["Backend (NestJS, containerizado — ex. ECS/Fargate)"]
+        CatalogModule["CatalogModule\n(canais, categorias)"]
+        FavoritesModule["FavoritesModule"]
+        EpgModule["EpgModule\n(agregação de fontes autorizadas)"]
+        EventsModule["EventsModule"]
+        AuthModule["AuthModule (opcional)"]
+    end
+
+    subgraph Dados["Persistência"]
+        PG[("PostgreSQL\n(via Prisma)")]
+        Redis[("Redis\n(cache de EPG/eventos,\nsomente se justificado\npor carga real)")]
+    end
+
+    subgraph Observabilidade["Observabilidade"]
+        Logs["Logs estruturados"]
+        Metrics["Métricas/tracing"]
+    end
+
+    subgraph Externo["Fontes de dados autorizadas"]
+        EpgProviders["Provedores de EPG\ncom licença/acordo"]
+        MediaMeta["API de metadados de mídia\n(com termos de uso respeitados)"]
+    end
+
+    UI -->|HTTPS| CDN
+    UI -->|HTTPS/JSON| Gateway
+    Gateway --> CatalogModule
+    Gateway --> FavoritesModule
+    Gateway --> EpgModule
+    Gateway --> EventsModule
+    Gateway -.-> AuthModule
+
+    CatalogModule --> PG
+    FavoritesModule --> PG
+    EpgModule --> Redis
+    EpgModule --> EpgProviders
+    EventsModule --> MediaMeta
+
+    API --> Logs
+    API --> Metrics
+
+    classDef proposed stroke-dasharray: 3 3
+    class UI,CDN,Gateway,CatalogModule,FavoritesModule,EpgModule,EventsModule,AuthModule,PG,Redis,Logs,Metrics,EpgProviders,MediaMeta proposed

@@ -388,3 +388,96 @@ useEffect(() => {
 **Como funciona, em alto nível:** o navegador, via EME, intercepta os segmentos de mídia criptografados antes de decodificá-los, usa a chave fornecida para decifrá-los, e só então os envia ao decoder de vídeo — tudo isso dentro do sandbox do navegador, sem que o JavaScript da página tenha acesso aos bytes decifrados brutos.
 
 **Exercício (conceitual, sem credenciais reais):** leia a documentação pública do [Shaka Player sobre ClearKey](https://shaka-player-demo.appspot.com/docs/api/tutorial-drm-config.html) e explique, em suas próprias palavras, por que ClearKey é considerado "DRM fraco" (a chave trafega acessível ao código do player) comparado a Widevine/PlayReady (onde a chave nunca é exposta ao JavaScript, só ao módulo de decodificação de hardware/firmware protegido).
+
+---
+
+## 17. Padrão "App Shell" com cache diferenciado por tipo de recurso (origem: E-027, Fase 04)
+
+**Conceito:** o padrão **App Shell** (popularizado pelo Google por volta de 2015-2016) separa uma aplicação em duas partes: a "casca" (HTML/CSS/JS mínimos para desenhar a estrutura visual, que muda raramente) e o "conteúdo" (dados que mudam com frequência). Um Service Worker cacheia **apenas a casca** de forma agressiva (cache-first), garantindo abertura instantânea mesmo offline, enquanto o conteúdo dinâmico **sempre** vem da rede — porque um conteúdo cacheado desatualizado seria pior do que não ter cache algum.
+
+**Por que importa:** o Saimo TV implementa esse padrão de forma exemplar e **explicitamente documentada pelo próprio autor** no código-fonte do `sw.js` — um caso raro onde a motivação arquitetural está escrita em um comentário, não precisando ser inferida.
+
+**Exemplo educacional:** ver Seção 10 de [`04-data-api-infrastructure.md`](./04-data-api-infrastructure.md#10-ensino-e-aprendizado).
+
+**Como verificar:** DevTools → Application → Service Workers → marque "Offline" e recarregue a página — o shell deve abrir normalmente; uma chamada de API deve falhar visivelmente (não silenciosamente com dado velho).
+
+**Exercício:** implemente um Service Worker mínimo para uma página estática simples, com uma rota `/api/hora` que retorna a hora atual (deve **sempre** vir da rede, nunca do cache) e um shell HTML/CSS (que deve funcionar offline após a primeira visita).
+
+---
+
+## 18. Backend "fino" composto por múltiplas funções pequenas (origem: E-006, E-019, E-032, E-033, Fase 04)
+
+**Conceito:** em vez de um único servidor de aplicação monolítico, é possível compor um backend inteiro a partir de **várias peças pequenas e independentes**: funções serverless (Cloudflare Pages Functions, AWS Lambda, etc.) para tarefas pontuais (proxy, agregação), e Workers/serviços de borda para responsabilidades específicas (monitoramento, eventos). Cada peça é simples isoladamente, mas o **conjunto** cobre um escopo de backend razoavelmente amplo sem nunca precisar de um servidor "sempre ligado" tradicional.
+
+**Por que importa:** o Saimo TV é um exemplo real e observável desse padrão: `/api/proxy` e `/api/events` (duas Cloudflare Pages Functions) mais um Cloudflare Worker com três rotas (`/v1/hello`, `/v1/fontes`, `/v1/eventos`) — nenhum "servidor" tradicional em lugar nenhum, mas, somadas, essas peças cobrem proxy, agregação de eventos, e telemetria/monitoramento.
+
+**Risco observável (não uma crítica, uma lição):** conforme esse tipo de sistema cresce organicamente (uma rota nova adicionada a um Worker já existente, em vez de um novo serviço), fica mais difícil saber, só pelo nome do serviço (`saimo-monitor`), tudo o que ele realmente faz — um ponto de atenção para observabilidade/documentação em sistemas que crescem assim.
+
+**Exemplo educacional:** ver a proposta de `CatalogModule`/`EpgModule`/`EventsModule` como módulos **separados** (ainda que dentro do mesmo backend NestJS) na Seção 8 de `04-data-api-infrastructure.md` — uma forma de obter os benefícios de responsabilidades bem distintas sem necessariamente fragmentar em múltiplos serviços de infraestrutura diferentes.
+
+**Como verificar:** não há verificação ativa recomendada aqui (envolveria inspecionar infraestrutura de terceiros) — este é um conceito a internalizar a partir do que já foi observado.
+
+**Exercício:** a partir da lista de responsabilidades observadas do `saimo-monitor` (`/v1/hello`, `/v1/fontes`, `/v1/eventos`), desenhe (em texto ou diagrama) como você separaria isso em serviços distintos caso o projeto crescesse — e liste um critério objetivo (ex.: "funções que mudam de frequência de deploy juntas ficam no mesmo serviço") para decidir onde traçar a linha.
+
+---
+
+## 19. Lista de fallback "autoaprendiz" por host, não por URL (origem: E-038, verificação de código-fonte)
+
+**Conceito:** em vez de decidir estaticamente "esta fonte precisa de proxy" apenas por regras fixas (protocolo, extensão), um sistema pode **aprender com a experiência**: quando uma tentativa direta falha por CORS, memorizar o **host** (não a URL completa) responsável, e da próxima vez pular direto para o caminho que funciona — sem precisar reconfigurar nada manualmente. Isso é diferente de um cache de resultado (que expira): é uma lista de "hosts problemáticos conhecidos", que só cresce com o uso real.
+
+**Por que importa:** o Saimo TV implementa exatamente isso (`src/utils/streamUrl.ts`, função `marcarSemCors`/`hostsSemCors`, persistida em `localStorage["saimo-sem-cors"]`, com uma semente inicial de um host conhecido) — evita gastar o tempo de um timeout de rede tentando algo que já se sabe (por experiência própria daquele navegador) que vai falhar.
+
+**Exemplo educacional:**
+
+```typescript
+const CHAVE = "hosts-que-precisam-proxy";
+
+function hostsConhecidos(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(CHAVE) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function lembrarQuePrecisaProxy(url: string) {
+  const host = new URL(url).host;
+  const atuais = hostsConhecidos();
+  atuais.add(host);
+  localStorage.setItem(CHAVE, JSON.stringify([...atuais]));
+}
+
+function deveComecarPeloProxy(url: string): boolean {
+  return hostsConhecidos().has(new URL(url).host);
+}
+```
+
+**Como validar:** não há como testar isso contra o Saimo TV sem reproduzir mídia (fora do escopo ético deste laboratório) — mas o padrão pode ser validado em um projeto próprio: simule duas fontes, uma que sempre falha direto, outra que sempre funciona, e confirme que, após a primeira falha, a fonte problemática passa a ir direto pelo "proxy" simulado.
+
+**Exercício:** implemente o padrão acima para uma lista de "servidores de imagem lentos" — da primeira vez que uma imagem demorar mais que 3 segundos para carregar, memorize o host e, da próxima vez, use uma versão de baixa resolução/thumbnail para hosts conhecidos como lentos.
+
+---
+
+## 20. Configuração injetada por ambiente de execução (origem: E-038, `proxyBase()`)
+
+**Conceito:** o **mesmo código-fonte** pode precisar se comportar diferente dependendo de onde está rodando (navegador comum vs. app desktop empacotado vs. desenvolvimento local) — sem duas implementações separadas. Uma técnica comum é checar, em ordem de prioridade, por uma configuração **injetada em tempo de execução** (uma variável global que só existe em certos ambientes), depois uma **variável de ambiente de build**, e só então cair para um **padrão sensato**.
+
+**Por que importa:** `proxyBase()` do Saimo TV faz exatamente essa cascata: (1) `globalThis.__SAIMO_PROXY__`, injetado pelo app desktop Tauri antes do primeiro script rodar (porque lá não existe "origem do site" — é um arquivo local); (2) `import.meta.env.VITE_PROXY_BASE`, uma variável de build para apontar a um proxy fora da infraestrutura padrão (contornando bloqueios de IP de datacenter); (3) `window.location.origin`, o padrão para o site normal.
+
+**Exemplo educacional:**
+
+```typescript
+function baseDoServico(): string {
+  const injetado = (globalThis as { __CONFIG_INJETADA__?: string }).__CONFIG_INJETADA__;
+  if (injetado) return injetado;
+
+  const doAmbiente = import.meta.env.VITE_SERVICO_BASE;
+  if (doAmbiente) return doAmbiente;
+
+  return window.location.origin;
+}
+```
+
+**Como validar:** rode a mesma aplicação em dois "modos" (ex.: definindo `window.__CONFIG_INJETADA__` manualmente no console do navegador antes de uma chamada) e confirme que o valor injetado tem prioridade.
+
+**Exercício:** escreva uma função `baseDaApi()` seguindo essa mesma cascata de três níveis para um projeto fictício, e escreva três testes unitários (um para cada nível de prioridade, garantindo que o mais específico sempre vence).

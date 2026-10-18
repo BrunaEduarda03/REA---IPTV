@@ -1,0 +1,21 @@
+%% Fluxo 2: Seleção de categoria (pílula) no painel de canais
+%% Baseado em leitura de PainelDeCanais-BclGcD97.js (Fase 02) — reexaminado
+%% sob a ótica de dados (não de UI) para a Fase 04. 100% client-side, sem rede.
+
+sequenceDiagram
+    actor U as Usuário
+    participant PILL as Pílula de categoria
+    participant ST as useState "categoriaAtiva"
+    participant MEM1 as useMemo "filtrados"
+    participant MEM2 as useMemo "agrupadosPorCategoria"
+    participant DOM as Lista renderizada
+
+    U->>PILL: clique em "Esportes"
+    PILL->>ST: setCategoriaAtiva("Esportes")
+    Note over ST,MEM1: Nenhuma requisição de rede —\ntodo o catálogo já está em memória\n(carregado no fluxo 1)
+    ST-->>MEM1: dependência mudou → recalcula
+    MEM1->>MEM1: filtra Channel[] já carregado\npor channel.category === "Esportes"
+    MEM1-->>MEM2: lista filtrada mudou → recalcula
+    MEM2->>MEM2: agrupa (uma única seção,\npois categoria específica está ativa)
+    MEM2-->>DOM: nova lista agrupada
+    DOM->>U: re-renderiza apenas os canais de Esportes

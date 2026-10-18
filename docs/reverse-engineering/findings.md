@@ -365,3 +365,217 @@ Registro numerado de descobertas técnicas. Cada entrada segue o modelo abaixo. 
 - **Interpretação técnica:** Tratamento padrão e correto da política de autoplay dos navegadores modernos (que só permitem autoplay com som após interação do usuário com o domínio, ou se o conteúdo já estiver mudo).
 - **Confiança:** alta
 - **Limitações:** Não foi confirmado, por leitura direta, que `M.current` é de fato populado a partir do `localStorage["tv-volume"]` (inferência por nome/consistência com E-008, não leitura do trecho exato que inicializa essa ref).
+
+---
+
+## E-027 — Service Worker público lido por completo: estratégia de cache "app shell" (resolve Q-006)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `sw.js`, servido publicamente em `https://saimo-tv.pages.dev/sw.js`
+- **Fonte da evidência:** `research/artifacts/scripts/sw.js` (1,7 KB, **não minificado**, com comentários originais do desenvolvedor em português)
+- **Ferramenta e método:** `curl` para descobrir e baixar o arquivo (testado em caminho convencional `/sw.js`; confirmado como arquivo real via `Content-Type: application/javascript` e `Cache-Control: public, max-age=0, must-revalidate`, diferente do fallback de SPA visto em E-012, que retorna `text/html`).
+- **Resultado observado:** O Service Worker usa uma cache nomeada `saimo-casca-v1` ("casca" = "shell"). No evento `install`, pré-cacheia apenas `/`, `/index.html`, `/manifest.webmanifest`, `/favicon.png`, `/icons/icon-192.png`. No evento `activate`, apaga caches de versões antigas (por nome) e assume clientes imediatamente (`skipWaiting`/`clients.claim`). No evento `fetch`: (1) ignora requisições não-GET e de origem cruzada; (2) ignora explicitamente qualquer caminho iniciado por `/api/`; (3) para navegação (`mode: "navigate"`), usa **network-first com fallback para cache** (busca da rede, atualiza o cache, mas serve do cache se offline); (4) para assets com hash no nome (`/assets/`, `/icons/`, extensões `.js`/`.css`/`.png`/`.svg`/`.woff2`), usa **cache-first** (serve do cache se existir, senão busca da rede e cacheia).
+- **Interpretação técnica:** **Resolve integralmente a Questão Q-006.** O próprio comentário do desenvolvedor no topo do arquivo explica a motivação: *"Nada de vídeo, playlist, catálogo ou API: esses sempre vêm da rede — uma lista de canais velha em cache seria pior que nenhuma."* — uma escolha de arquitetura deliberada e bem fundamentada: o Service Worker cobre apenas o "shell" do app (HTML/JS/CSS/ícones, cacheável com segurança graças aos hashes de conteúdo nos nomes dos arquivos), e explicitamente **nunca** cacheia API, catálogo ou mídia, que mudam com frequência e cujo cache desatualizado seria pior do que não ter cache.
+- **Confiança:** alta (código público, completo e não minificado)
+- **Limitações:** Nenhuma relevante — esta é uma das evidências mais completas e diretas de todo o laboratório até agora.
+
+---
+
+## E-028 — Nenhuma evidência de uso de IndexedDB
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Todos os bundles JS já baixados (`index`, `catalog`, `player`, `tv`, `PainelDeCanais`, `epgWorker`, `vendor*`)
+- **Fonte da evidência:** Busca textual por `indexedDB`, `openDatabase`, `IDBKeyRange`, `idb-keyval`.
+- **Ferramenta e método:** `grep` sobre todos os arquivos `.js` já baixados.
+- **Resultado observado:** Nenhuma ocorrência em nenhum arquivo.
+- **Interpretação técnica:** Toda a persistência client-side observada até agora usa exclusivamente `localStorage` (E-008, E-017) e, para arquivos estáticos, a `Cache Storage API` via Service Worker (E-027) — não há uso de IndexedDB.
+- **Confiança:** alta (para os arquivos lidos) / média (chunks não lidos como `StreamTester`/`AppDownload`/`Novidades` continuam não verificados)
+- **Limitações:** Mesma limitação de E-013/E-025 — três chunks nunca foram lidos.
+
+---
+
+## E-029 — Integração com a API pública do TMDB (The Movie Database) para metadados de VOD, incluindo chave de API hardcoded no bundle
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Seção de VOD (filmes/séries) em `catalog-Y4ECXKT4.js`
+- **Fonte da evidência:** Constantes `jn=\`https://api.themoviedb.org/3\`` e uma string de 32 caracteres hexadecimais atribuída à variável imediatamente anterior (identificada como uma chave de API v3 do TMDB pelo padrão), função `Mn(caminho, tamanho="w342")` que monta URLs `https://image.tmdb.org/t/p/<tamanho><caminho>`, e função `Nn` que extrai classificação indicativa brasileira (`content_ratings`/`release_dates`, filtrando `iso_3166_1 === "BR"`).
+- **Ferramenta e método:** Leitura direta do bundle já baixado.
+- **Resultado observado:** A aplicação consulta a API pública do TMDB para obter metadados de filmes/séries (pôsteres via `image.tmdb.org`, classificação indicativa brasileira), usando uma chave de API **incorporada diretamente no bundle JavaScript público** (valor omitido deste relatório por ser, tecnicamente, uma credencial — ainda que de uma API com uso client-side historicamente comum).
+- **Interpretação técnica:** Confirma que os metadados de VOD (pôsteres, classificação etária) não vêm do catálogo próprio em texto (que, por E-022, parece focado em fontes de stream), mas de uma integração com uma API de terceiros de catálogo de filmes amplamente usada na indústria. O uso de uma chave client-side é uma prática comum para a API v3 do TMDB (historicamente pensada para uso em aplicações públicas, com rate-limit por chave), mas ainda assim representa uma **credencial exposta no código-fonte público** — uma consideração arquitetural relevante (ver Seção 8 da Fase 04 sobre segurança em uma API própria).
+- **Confiança:** alta
+- **Limitações:** Não foi testada a chamada real à API (nenhuma requisição foi feita) — apenas o código que a construiria foi lido. O valor da chave foi deliberadamente omitido deste registro.
+
+---
+
+## E-030 — Integração com a API pública da ESPN para a aba "Eventos" (esportes)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Função de agregação de eventos esportivos em `index-B8gNV0IZ.js`
+- **Fonte da evidência:** Função `Be()` que faz `Promise.all` combinando chamadas a `Pe(ke)`, `Pe(Ae)` e, para cada item de um array `je` de ~15+ códigos de liga, uma chamada a `https://site.api.espn.com/apis/site/v2/sports/<liga>/scoreboard`. `je` contém códigos como `soccer/bra.1` (Brasileirão Série A), `soccer/bra.2`, `soccer/bra.copa_do_brazil`, `soccer/conmebol.libertadores`, `soccer/conmebol.sudamericana`, `soccer/uefa.champions`, `soccer/uefa.europa`, e ligas nacionais (Inglaterra, Espanha, Itália, Alemanha, França, entre outras).
+- **Ferramenta e método:** Leitura direta do bundle já baixado.
+- **Resultado observado:** A aba "Eventos" (não explorada visualmente desde a Fase 01, ver Q-004) é alimentada, ao menos em parte, pela **API pública e gratuita de scoreboard da ESPN**, consultando múltiplas competições de futebol simultaneamente.
+- **Interpretação técnica:** Resolve parcialmente a Q-004: a aba "Eventos" mostra partidas/eventos esportivos (futebol, majoritariamente), agregados de uma API de terceiros bem conhecida e publicamente documentada (não oficialmente, mas amplamente usada pela comunidade de desenvolvedores).
+- **Confiança:** alta (chamada à API, lista de ligas) / média (como os dados são exibidos na UI, não observado visualmente)
+- **Limitações:** Nenhuma requisição real foi feita; apenas o código foi lido. O conteúdo exibido na aba "Eventos" não foi visualmente confirmado.
+
+---
+
+## E-031 — Legendas de VOD via addon comunitário do Stremio (OpenSubtitles)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Seção de VOD em `player-DGAgJsZy.js`
+- **Fonte da evidência:** Constante `ig=\`https://opensubtitles-v3.strem.io/subtitles\`` e um array de configuração de idiomas (`pob` = Português do Brasil, `por` = Português de Portugal, cada um com um "limite" de resultados).
+- **Ferramenta e método:** Leitura direta do bundle já baixado.
+- **Resultado observado:** A aplicação busca legendas para conteúdo VOD através do **addon comunitário de OpenSubtitles do ecossistema Stremio** (um serviço público de terceiros, não a API oficial paga do OpenSubtitles), priorizando português brasileiro.
+- **Interpretação técnica:** Mais uma integração com um serviço público gratuito do ecossistema de mídia/streaming open-source, consistente com o padrão já observado (EPG, catálogo) de agregar serviços de terceiros gratuitos em vez de construir infraestrutura própria para cada necessidade.
+- **Confiança:** alta
+- **Limitações:** Nenhuma requisição real foi feita.
+
+---
+
+## E-032 — Dois endpoints de backend adicionais descobertos: `/api/events` (próprio) e `/v1/eventos` (Worker de monitoramento)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Mesma função `Be()` de E-030
+- **Fonte da evidência:** Constantes `ke=\`/api/events\`` e `Ae=\`https://saimo-monitor.gabrielsaimo68.workers.dev/v1/eventos\`` em `index-B8gNV0IZ.js`, consultadas via `Pe()` (função de fetch, não detalhada) em paralelo com as chamadas à ESPN (E-030).
+- **Ferramenta e método:** Leitura direta do bundle já baixado.
+- **Resultado observado:** Além de `/api/proxy` (E-005, E-019) já conhecido, existe um **segundo endpoint próprio** `/api/events` (outra função do Cloudflare Pages, mesmo domínio `saimo-tv.pages.dev`). Além disso, o Worker de monitoramento `saimo-monitor.gabrielsaimo68.workers.dev` (E-006) expõe **mais um caminho**, `/v1/eventos`, além de `/v1/fontes` e `/v1/hello` já conhecidos.
+- **Interpretação técnica:** O backend próprio da aplicação é mais extenso do que o mapeado até a Fase 01: tem ao menos duas Pages Functions (`/api/proxy`, `/api/events`) e o Worker de monitoramento tem ao menos três rotas (`/v1/hello`, `/v1/fontes`, `/v1/eventos`) — sugerindo que esse Worker não é só um "monitor de fontes de stream", mas um **backend de suporte mais genérico** para a aplicação, cobrindo também dados de eventos esportivos.
+- **Confiança:** alta (existência dos caminhos) / baixa (o que cada endpoint retorna exatamente — não observado)
+- **Limitações:** Nenhuma requisição real foi feita a nenhum dos dois novos endpoints.
+
+---
+
+## E-033 — Correção/detalhamento de E-006: `/v1/hello` é chamado via **POST** com corpo, não GET
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Requisição real capturada na Fase 01 (`research/artifacts/capture-01-full.json`), reexaminada nesta fase
+- **Fonte da evidência:** Evento de rede `{"method":"POST","url":".../v1/hello", header_names: [...,"content-type",...]}` dentro da captura já salva da Fase 01.
+- **Ferramenta e método:** Reanálise (via `jq`) de uma captura de rede já realizada — **nenhuma nova requisição foi feita**.
+- **Resultado observado:** Ao contrário do que E-006 descrevia (que não especificava o método), a única requisição a `/v1/hello` observada na captura da Fase 01 é um **POST**, com cabeçalho `content-type` presente (indicando corpo de requisição).
+- **Interpretação técnica:** **Correção a E-006**: `/v1/hello` não é um simples healthcheck GET — é mais provavelmente um "check-in"/heartbeat de telemetria que envia algum payload (possivelmente incluindo o `saimo-telemetria-id` de E-008, mas isso não foi confirmado). O registro original (E-006) permanece no histórico; esta entrada o complementa.
+- **Confiança:** alta (método HTTP observado diretamente) / baixa (conteúdo do corpo da requisição, não capturado)
+- **Limitações:** O corpo da requisição POST não foi capturado (a Fase 01 não ativou `request_body: true` na captura de rede).
+
+---
+
+## E-034 — Dezenas de domínios de origem de stream embutidos na lista de fallback (categorias de infraestrutura observadas, sem enumeração)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Lista de canais de fallback embutida em `player-DGAgJsZy.js` (já identificada em [E-016](#e-016--lista-canônica-de-categorias-revela-seções-não-observadas-pluto-tv-internacionais-adulto-e-lista-de-canais-de-fallback-embutida-no-bundle))
+- **Fonte da evidência:** Varredura de todos os bundles por padrões de URL (`https?://<host>`).
+- **Ferramenta e método:** `grep`/regex em Python sobre os bundles já baixados.
+- **Resultado observado:** Dezenas de domínios distintos de origem de stream aparecem na lista embutida, correspondendo a **padrões de infraestrutura de streaming reconhecíveis**: CDNs comerciais consolidadas (ex.: domínios `*.akamaized.net` — Akamai; `*.cloudfront.net` — AWS CloudFront), plataformas de distribuição de canais ao vivo (ex.: domínios `*.amagi.tv` — Amagi Cloud, usada por emissoras reais para distribuição OTT), e servidores de streaming self-hosted comuns em infraestrutura de IPTV comunitária (ex.: domínios contendo `streamlock.net`, característico do Wowza Streaming Engine).
+- **Interpretação técnica:** Confirma, em nível de infraestrutura, o padrão já visto em outras camadas (catálogo, EPG, logos): a aplicação **agrega fontes heterogêneas de terceiros** — de CDNs comerciais legítimas a servidores de streaming operados por terceiros desconhecidos — sem padronização.
+- **Confiança:** alta (padrões de domínio observados) / não aplicável (identidade/legitimidade de cada fonte individual, fora do escopo)
+- **Limitações:** **Deliberadamente, esta entrada não lista os domínios individuais** nem URLs completas de stream, por estarem fora do escopo ético do laboratório (regras do projeto sobre não enumerar/divulgar endpoints de streaming e não reproduzir conteúdo de terceiros). Apenas padrões/categorias de infraestrutura são registrados.
+
+---
+
+# Verificação cruzada com o código-fonte público (gabrielsaimo/Saimo-TV)
+
+A partir daqui, as descobertas foram obtidas ou confirmadas lendo diretamente o **repositório de código-fonte oficial do Saimo TV**, identificado publicamente pelo usuário. Isso eleva a confiança de boa parte do trabalho de engenharia reversa das Fases 01-04 (que trabalhou só com JavaScript minificado, sem nomes originais) para "fato verificado por leitura do código-fonte original" — e, em alguns pontos, **corrige** inferências anteriores. Conforme o histórico do laboratório, nenhum registro anterior foi apagado; as correções aparecem como novas entradas.
+
+**Nota de direitos autorais:** o repositório não tem licença declarada (`license: None` na API do GitHub), portanto é **"todos os direitos reservados"** por padrão — pode ser lido e citado para fins de pesquisa/documentação, mas não copiado para uma nova implementação (consistente com `AGENTS.md`, item 14). As entradas abaixo descrevem comportamento e estrutura em texto próprio, citando apenas fragmentos curtos de identificação (nomes de arquivo, de função, de constante), nunca trechos extensos de código.
+
+## E-035 — Repositório fonte oficial identificado e verificado: `github.com/gabrielsaimo/Saimo-TV`
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Metadados e estrutura geral do repositório
+- **Fonte da evidência:** API pública do GitHub (`api.github.com/repos/gabrielsaimo/Saimo-TV`) e árvore de arquivos (`git/trees/main?recursive=1`)
+- **Ferramenta e método:** `curl` contra a API pública do GitHub (sem autenticação)
+- **Resultado observado:** Repositório público, 49 estrelas, 8 forks, sem licença declarada, `homepage` = `https://saimo-tv.pages.dev` (confirma ser o repositório do alvo). README lista aplicativos irmãos: `SaimoTV-Android`, `Saimo-Cell-V2` (celular), `SaimoWin` (Windows nativo), `SaimoPlayer` (Mac + catálogo compartilhado). `package.json` declara `"version": "2.3.0"`, enquanto o `README.md` menciona "Versão atual: 2.1.1" — **divergência de versão entre documentação e código**, sugerindo desenvolvimento ativo entre uma atualização e outra.
+- **Interpretação técnica:** O Saimo TV faz parte de uma família de aplicativos multiplataforma (Android, iOS/celular, Windows, Mac, Web) compartilhando o mesmo catálogo (`SaimoPlayer`). O site web é apenas uma das frentes.
+- **Confiança:** alta
+- **Limitações:** Nenhuma.
+
+## E-036 — Dependências e versões exatas confirmadas via `package.json`
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `package.json` do repositório fonte
+- **Fonte da evidência:** `package.json` (raiz do repositório)
+- **Resultado observado:** `react@^19.3.0`, `react-dom@^19.3.0` (confirma [E-011](#e-011--versões-exatas-de-react-reactdom-e-scheduler-mapa-preciso-de-dependências-entre-chunks) com exatidão), `react-router-dom@^7.18.4` (React Router v7), `hls.js@^1.7.3` (confirma [E-007](#e-007--player-de-vídeo-com-hlsjs-173-e-mpegtsjs-embutidos) com exatidão), `mpegts.js@^1.8.2` (versão exata, não conhecida antes), `shaka-player@^5.2.12` (confirma [E-021](#e-021--shaka-player-terceiro-motor-usado-para-dash-com-suporte-a-drm-clearkey--carregado-sob-demanda) com exatidão), `@tauri-apps/api`/`cli`/`plugin-*` (o app de desktop usa **Tauri**, não Electron — informação nova), `vite@^8.3.1`, `typescript@~6.0.3`. Também presentes: `@vercel/node` (devDependency) e, na árvore de arquivos, uma pasta `api/` na raiz (além de `functions/api/`) e um `vercel.json` — sugerindo suporte a deploy alternativo na Vercel, embora o `README.md` confirme que a produção roda em Cloudflare Pages.
+- **Interpretação técnica:** Confirma com precisão total o que havíamos inferido por fingerprint em código minificado (React, ReactDOM, hls.js, Shaka), corrige a suposição implícita de "Electron" para o app desktop (é **Tauri**, um framework mais leve baseado em Rust + WebView do sistema), e revela suporte a mais de uma plataforma de deploy serverless no código (Cloudflare Pages Functions **e** Vercel Functions), ainda que apenas uma esteja em uso em produção.
+- **Confiança:** alta
+- **Limitações:** Não foi confirmado se a Vercel está de fato em uso em algum ambiente (ex.: preview deploys), ou é só suporte deixado no código.
+
+## E-037 — Modelo de dados exato confirmado via `src/types/*.ts`
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/types/channel.ts`, `src/types/epg.ts`
+- **Resultado observado:** Interfaces `ChannelSource` (`url`, `quality?`, `name?`, `referer?`, `userAgent?`, `keyId?`, `key?`), `Channel` (`id`, `name`, `url`, `logo?`, `category?`, `channelNumber?`, `sources?: ChannelSource[]`), `Program` (`id`, `title`, `description?`, `startTime`, `endTime`, `category?`, `rating?`, `thumbnail?`, `isLive?`, `episodeInfo?: {season?, episode?, episodeTitle?}`), `ChannelEPG` (`channelId`, `programs`), `CurrentProgram` (`current`, `next`, `progress`), e `PlayerState` (`isPlaying`, `isMuted`, `volume`, `isFullscreen`, `isMirrored`, `isTheaterMode`, `isPiP`, `isLoading`, `error`).
+- **Interpretação técnica:** **Eleva o modelo ER proposto na Fase 04 de "proposta educacional" para "fato confirmado"** — nossos campos inferidos (`Channel`, `Source`, `Program`, `CurrentProgram`) bateram quase exatamente com os nomes e formatos reais, incluindo o retorno `{current, next, progress}` da função que havíamos chamado de `Zm()` no código minificado (Fase 03). Revela três campos de `PlayerState` não conhecidos antes: `isMirrored` (espelhamento de tela), `isTheaterMode` (modo cinema), `isPiP` (picture-in-picture) — recursos de player não documentados nas fases anteriores.
+- **Confiança:** alta
+- **Limitações:** Não foi lido o restante de `src/types/movie.ts` nesta passagem (VOD não detalhado).
+
+## E-038 — Lógica exata de seleção de formato e de proxy: mais sofisticada do que o inferido do bundle minificado
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/utils/streamUrl.ts`, `src/utils/sourceOrder.ts`, `src/utils/proxyUrl.ts`
+- **Resultado observado:** As funções `isDash`/`isHls`/`isMpegTs` confirmam **exatamente** a lógica já reconstruída em [E-018](#e-018--seleção-de-engine-de-reprodução-três-motores-distintos-escolhidos-por-teste-de-url) (mesmos critérios, incluindo o caso especial `dadinhodetapioca.fun`). A função `needsProxy` confirma [E-019](#e-019--proxy-de-mídia-reutiliza-o-mesmo-endpoint-apiproxy-do-epg-com-encaminhamento-opcional-de-refereruser-agent) exatamente. **Além disso**, o código revela uma camada que o bundle minificado não deixou clara: a função `buildAttempts` monta, para cada fonte (já ordenada HTTPS-primeiro via `httpsFirst`), **até duas tentativas** — direta e via proxy — e **não apenas uma decisão binária fixa**; um mecanismo de aprendizado local (`localStorage["saimo-sem-cors"]`, semente `['jmp2.uk']`) registra hosts que já falharam por CORS, para começar direto pelo proxy nas próximas visitas. A função `proxyBase()` muda conforme a plataforma: no site, `/api/proxy` (mesma origem); no app desktop (Tauri), um servidor local injetado via `globalThis.__SAIMO_PROXY__` antes do primeiro script rodar; opcionalmente, uma variável de ambiente `VITE_PROXY_BASE` aponta para um proxy hospedado fora da Cloudflare — porque, segundo o comentário do próprio autor, **"os IPs de datacenter da Cloudflare são recusados por parte dos CDNs desta lista, que respondem 403 a quem não vem de uma conexão residencial"**. Também existe `fixNestedPath()`, uma correção específica para playlists (ex.: canais "Telecine") cujo manifesto aponta para segmentos em uma pasta diferente da esperada, e `hexToBase64Url()`, que converte o par `keyId`/`key` (hexadecimal, conforme o catálogo) para o formato base64url exigido pela API EME do navegador para DRM ClearKey — fechando o ciclo de [E-021](#e-021--shaka-player-terceiro-motor-usado-para-dash-com-suporte-a-drm-clearkey--carregado-sob-demanda).
+- **Interpretação técnica:** **Refina (não invalida) E-018/E-019/E-020/E-021.** A arquitetura de fallback de fontes é mais rica do que "uma fonte ruim, tenta a próxima": cada fonte individual já rende até duas tentativas (direta/proxy), e o sistema aprende, por host, quando pular direto para o proxy — uma otimização de latência que só a leitura do código-fonte real revelou.
+- **Confiança:** alta
+- **Limitações:** Nenhuma relevante — código-fonte completo e lido integralmente para este arquivo.
+
+## E-039 — Mecanismo de "servidores desligados" é curadoria **manual**, não monitoramento automático (corrige E-006)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/services/fontesDesativadas.ts`
+- **Resultado observado:** O comentário de cabeçalho do arquivo afirma textualmente: **"Servidores desligados à mão, no painel do monitor."** A lista vem de `GET https://saimo-monitor.gabrielsaimo68.workers.dev/v1/fontes`, resposta no formato `{ desativados: string[] }` (hostnames, não URLs completas), cacheada no cliente por 120 segundos. Em caso de falha de rede, a lista fica **vazia** (fail-open) — o comentário do autor explica a filosofia: **"um canal a mais na tela é melhor que a lista inteira sumindo porque o monitor não respondeu."** A mensagem de log `servidores desligados: <lista>` (vista na Fase 01) é gerada literalmente por este módulo.
+- **Interpretação técnica:** **Corrige [E-006](#e-006--backend-próprio-de-monitoramento-de-fontes-cloudflare-worker)**, que especulava "provável scraping/ping periódico por um processo externo" — na realidade, é uma lista **editada manualmente pelo mantenedor** em algum painel administrativo (não observado, não faz parte do site público), e o Worker apenas serve essa lista estática/semi-estática. Também resolve parcialmente a Q-005 (formato da resposta de `/v1/fontes` agora conhecido).
+- **Confiança:** alta
+- **Limitações:** O "painel do monitor" em si (onde o mantenedor edita a lista) não é público e não foi (nem deveria ser) investigado.
+
+## E-040 — Telemetria exata: `sendBeacon`, `text/plain`, sem IP, limiar de 20s (resolve Q-010)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/services/telemetria.ts`
+- **Resultado observado:** Confirma a leitura/criação do `localStorage["saimo-telemetria-id"]` exatamente como registrado em [E-008](#e-008--persistência-exclusivamente-em-localstorage-sem-cookies) (via `crypto.randomUUID()`, com fallback manual). O envio usa `navigator.sendBeacon` com corpo `text/plain` (explica o cabeçalho `content-type` visto na captura de rede da Fase 01, [E-033](#e-033--correçãodetalhamento-de-e-006-v1hello-é-chamado-via-post-com-corpo-não-get)) — escolha deliberada para evitar preflight de CORS e não atrasar o vídeo. O comentário do autor afirma explicitamente: **"o IP não é gravado: a cidade sai da borda da Cloudflare"**. Métricas enviadas incluem: plataforma (`"site"`), versão, o que está tocando (título, host), tempo acumulado assistido (só conta tempo com vídeo de fato rodando, não pausado/carregando), qualidade, travamentos, pulos. Um canal só "conta" como assistido após **20 segundos** contínuos (filtro anti-zapping). Heartbeat padrão a cada 5 minutos.
+- **Interpretação técnica:** **Resolve a Q-010.** Confirma que a telemetria é relativamente minimalista em termos de dados pessoais (sem IP bruto, ID gerado localmente sem vínculo a conta), e que o uso de `sendBeacon`/`text/plain` é uma escolha técnica deliberada (evitar preflight CORS), não um indício de formato de dado "menos estruturado" como se poderia supor.
+- **Confiança:** alta
+- **Limitações:** Nenhuma relevante.
+
+## E-041 — `/api/events` exato: fonte "embedtv.cc" identificada, estratégia de fallback precisa (refina E-030/E-032)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `functions/api/events.ts`
+- **Resultado observado:** A função busca, em paralelo, `https://embedtv.cc/api/events` (prazo de 5s) e `https://saimo-monitor.gabrielsaimo68.workers.dev/v1/eventos` (prazo de 8s) — e retorna o corpo da **embedtv se disponível, senão o do monitor** (não uma combinação dos dois nesta função — a combinação com os placares da ESPN acontece no cliente, como já observado na Fase 04). Resposta cacheada por 60s (`Cache-Control: public, max-age=60`); erro retorna HTTP 502 com `Cache-Control: no-store`. A função usa um User-Agent de navegador comum ao chamar `embedtv.cc` (do lado do servidor da própria aplicação, não algo que fizemos).
+- **Interpretação técnica:** Identifica pelo nome a terceira fonte de dados de eventos (**embedtv.cc**, não conhecida antes — citada apenas como domínio bruto em nossa varredura da Fase 04). Confirma a filosofia de "nunca ficar sem dado por causa de uma única fonte falhando", o mesmo padrão já visto em `fontesDesativadas.ts` (E-039) e no merge de EPG de 4 fontes (E-005, Fase 01).
+- **Confiança:** alta
+- **Limitações:** Nenhuma relevante.
+
+## E-042 — Algoritmo de "fonte preferida" entre episódios de série confirmado (`fontePreferida.ts`)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/utils/fontePreferida.ts`
+- **Resultado observado:** Confirma, com precisão de código, a afirmação do `README.md`: ao trocar de episódio de uma série (automático, botão "Próximo", ou escolha manual), o app tenta manter a fonte que estava tocando — nessa ordem de prioridade: (1) mesma versão de áudio (dublado/legendado, nunca muda), dentro dela (2) o mesmo host da fonte anterior, (3) a mesma posição numérica dentro da lista daquela versão, (4) a ordem padrão. O estado "lembrado" vive só em memória (não em `localStorage`), por série, durante a sessão.
+- **Interpretação técnica:** Um exemplo refinado de UX pensada para continuidade de experiência (evitar trocar de servidor ou de dublado-para-legendado sem querer ao avançar episódios), implementado como uma função pura e bem isolada — bom material didático de "lógica de preferência com fallback em cascata" (ver `learning.md`).
+- **Confiança:** alta
+- **Limitações:** Nenhuma relevante (esta funcionalidade não havia sido mapeada em nenhuma fase anterior).
+
+## E-043 — Chave de API do TMDB é constante hardcoded em código-fonte versionado (refina E-029)
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/services/tmdbService.ts`
+- **Resultado observado:** O mesmo valor de 32 caracteres hexadecimais identificado no bundle minificado em [E-029](#e-029--integração-com-a-api-pública-do-tmdb-the-movie-database-para-metadados-de-vod-incluindo-chave-de-api-hardcoded-no-bundle) aparece como uma constante de módulo literal no código-fonte (não uma variável de ambiente `import.meta.env.*`, ao contrário de outras configurações do projeto como `VITE_PROXY_BASE`, ver E-038).
+- **Interpretação técnica:** Confirma que a exposição dessa chave no bundle público não é um vazamento acidental de build — é uma decisão deliberada do autor de versionar a chave diretamente no código-fonte (prática comum e historicamente aceita para chaves v3 do TMDB, pensadas para uso client-side, mas ainda assim uma credencial em texto claro em um repositório público).
+- **Confiança:** alta
+- **Limitações:** O valor da chave continua deliberadamente omitido deste e de todos os outros registros.
+
+## E-044 — Janela de tempo real do EPG é 3h atrás + 30h adiante (33h) — diverge do valor calculado na Fase 02 por deriva de versão
+
+- **Data:** 2026-10-19
+- **Componente investigado:** `src/workers/epgWorker.ts` (constantes `PAST_WINDOW_MS`/`FUTURE_WINDOW_MS`), `src/services/epgService.ts`
+- **Resultado observado:** `PAST_WINDOW_MS = 3 * 60 * 60 * 1000` (3h), `FUTURE_WINDOW_MS = 30 * 60 * 60 * 1000` (30h) — total de 33 horas de janela, confirmando o texto do `README.md` ("de três horas atrás a trinta horas adiante"). Isso **diverge** do valor de 25 horas (`v = 25 * g`, onde `g` = 1 hora) que havíamos calculado a partir do bundle minificado `tv-C6ATJaLp.js` na Fase 02.
+- **Interpretação técnica:** Não é um erro de leitura da Fase 02 — é **deriva de versão**: o bundle minificado que baixamos e analisamos nas Fases 01-02 foi capturado em um momento específico (provavelmente próximo da v2.1.1 citada no `README.md`), enquanto o código-fonte atual do branch `main` está na v2.3.0 (ver [E-035](#e-035--repositório-fonte-oficial-identificado-e-verificado-githubcomgabrielsaimosaimo-tv)) — a aplicação mudou a janela da grade de EPG em algum ponto entre essas versões. Registrado como correção/atualização, preservando o valor original da Fase 02 no histórico.
+- **Confiança:** alta
+- **Limitações:** Não foi confirmado em qual versão exata a janela mudou de 25h para 33h (não investigamos o histórico de commits).
+
+## E-045 — Confirmações consolidadas: nomes de componentes, sistema de navegação por D-pad, rota oculta, app desktop
+
+- **Data:** 2026-10-19
+- **Componente investigado:** Estrutura geral do repositório (`src/components/*`, `src/contexts/dpadContexto.ts`, `src/hooks/useDpadNavigation.ts`, `README.md`)
+- **Resultado observado:** Nomes de componente confirmam exatamente os nomes já inferidos nas Fases 02-03: `Abertura.tsx` (animação de abertura, Fase 02), `ProgramGuide.tsx`, `PainelDeCanais.tsx`, `VideoPlayer.tsx`/`MoviePlayer.tsx`/`radioPlayer.ts`/`dashPlayer.ts` (Fase 03), `StreamTester.tsx`/`AppDownload.tsx`/`Novidades.tsx` ([E-013](#e-013--rotas-e-funcionalidades-adicionais-não-exploradas-na-fase-01)). Um sistema dedicado de **navegação por D-pad** (controle remoto/teclado direcional) existe em `dpadContexto.ts`/`DpadContext.tsx`/`useDpadNavigation.ts` — confirma a hipótese levantada na Fase 02 sobre os atributos `data-focusable`/`data-focus-key` vistos no HTML. O `README.md` confirma que a rota `/novidades` é **deliberadamente sem link em lugar nenhum da interface** (só acessível por URL direta) — não é uma rota "esquecida", é uma decisão de design. Confirma também: app desktop é **Tauri** (não Electron, corrige suposição implícita), com instaladores MSI/NSIS gerados por GitHub Actions; suporte a Media Session API (controles do sistema/tela de bloqueio); e que o roteamento usa caminhos normais no navegador mas roteamento por `#` no app desktop (mesmo `index.html`, raiz de arquivo local).
+- **Interpretação técnica:** Alto grau de acerto da engenharia reversa feita nas Fases 02-03 unicamente a partir de bundles minificados — praticamente todos os nomes/comportamentos inferidos (mesmo sem source maps) corresponderam à estrutura real.
+- **Confiança:** alta
+- **Limitações:** Nenhuma relevante.
