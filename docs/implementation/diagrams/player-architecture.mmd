@@ -1,0 +1,42 @@
+%% Arquitetura do player — Sprint 03
+%% VideoPlayer (componente) → useVideoPlayer (hook) → createAdapter → nativeAdapter | hlsAdapter
+
+flowchart TB
+    subgraph UI["VideoPlayer.tsx (apresentação)"]
+        VID["<video ref=.../>"]
+        OVERLAY["Overlay de loading/erro\n(conforme state.status)"]
+        CTRL["PlayerControls\n(play/pause, mudo, volume)"]
+    end
+
+    subgraph HOOK["useVideoPlayer(src) — orquestração"]
+        EFFECT["useEffect([src])\n1. destrói motor anterior\n2. registra listeners nativos\n3. cria motor via createAdapter\n4. attach(video, src)"]
+        STATE["PlayerState\n(idle|loading|playing|paused|error|ended)"]
+        CLEANUP["cleanup (return do efeito)\nremove listeners + destroy()"]
+    end
+
+    subgraph FACTORY["createAdapter(video, src)"]
+        DECIDE{".m3u8 ?"}
+        NATIVESUP{"navegador toca\nHLS nativo?"}
+    end
+
+    subgraph ADAPTERS["Motores (MediaSourceAdapter)"]
+        NATIVE["nativeAdapter\nvideo.src = url"]
+        HLS["hlsAdapter\nimport('hls.js') dinâmico\nnew Hls() → loadSource → attachMedia"]
+    end
+
+    EXT["test-streams.mux.dev\n(mídia de demonstração pública)"]
+
+    VID --> HOOK
+    HOOK --> EFFECT
+    EFFECT --> FACTORY
+    DECIDE -->|não| NATIVE
+    DECIDE -->|sim| NATIVESUP
+    NATIVESUP -->|sim, ex. Safari| NATIVE
+    NATIVESUP -->|não| HLS
+    HLS -.->|lazy import, chunk separado| EXT
+    NATIVE --> EXT
+    NATIVE --> STATE
+    HLS --> STATE
+    STATE --> OVERLAY
+    STATE --> CTRL
+    EFFECT --> CLEANUP

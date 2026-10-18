@@ -37,3 +37,23 @@ Cada sprint, ao ser reportado como concluído, deve incluir nesta seção (ou em
 ### Decisão de teste notável: mock de `fetch` por rota, não por teste
 
 Em vez de mockar `fetch` de forma ad-hoc em cada teste do frontend, `apps/web/src/tests/catalogFixtures.ts` centraliza um `mockCatalogFetch()` que inspeciona o `pathname` da URL chamada e decide a resposta — reaproveitado por todos os testes de `CatalogPage`. Isso evita duplicar a lógica de "se for /api/categories, devolva X" em oito testes diferentes, e deixa cada teste focado só no que é específico dele (ex.: só o teste de erro passa `channelsStatus: 500`).
+
+## Sprint 03 — cobertura real do player
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `adapters/nativeAdapter.test.ts` | `attach` define `video.src`; `destroy` chama `removeAttribute("src")` + `load()`; `destroy` sem `attach` anterior não lança | 3 testes |
+| `adapters/hlsAdapter.test.ts` | `attach` cria instância do `Hls` mockado, chama `loadSource`/`attachMedia`; `destroy` chama `hls.destroy()` na instância certa | 3 testes |
+| `adapters/createAdapter.test.ts` | Seleção de motor: `.mp4` → nativo; `.m3u8` + suporte nativo → nativo (não baixa hls.js); `.m3u8` sem suporte nativo → hls.js | 3 testes |
+| `hooks/useVideoPlayer.test.tsx` | Anexa o motor da fonte inicial; **trocar `src` destrói o motor anterior antes de criar o novo** (critério de aceitação explícito da sprint); desmontar destrói o motor ativo; eventos nativos `error`/`playing` atualizam `state.status` | 5 testes |
+| `components/VideoPlayer.test.tsx` | Renderiza `<video>` com rótulo acessível; mostra "Carregando vídeo…" antes do motor terminar de anexar; expõe os controles (play/pause, volume) | 3 testes |
+
+**Total Sprint 03: 17 testes novos. Total do monorepo após a sprint: 59 testes, 59 passando, 0 falhando.**
+
+### Por que o teste do hook usa um `MediaSourceAdapter` falso, não o `hls.js` mockado diretamente
+
+`useVideoPlayer.test.tsx` mocka o **módulo `createAdapter`** (não `hls.js`) e injeta dois adapters falsos (`adapterA`/`adapterB`), cada um só registrando quando `attach`/`destroy` são chamados. Isso testa exatamente o que o hook é responsável por garantir — a ORDEM de destruição/criação ao trocar de fonte — sem depender de nenhum detalhe de como o hls.js funciona por dentro (isso já está coberto, separadamente, por `hlsAdapter.test.ts`). Sem essa separação, o teste do hook ficaria acoplado a dois motores ao mesmo tempo, dificultando saber qual dos dois quebrou quando um teste falha.
+
+### Verificação manual real (não substituível por teste automatizado)
+
+Reprodução real testada em Chromium headless via `mcp__rea__capture_browser_scenario` (ver `progress.md` para os detalhes): clique em "Reproduzir" → manifesto HLS mestre carregado → hls.js escolheu entre as variantes de qualidade disponíveis → segmentos `.ts` baixados (HTTP 206) → vídeo "Big Buck Bunny" renderizado na tela, botão mudando para "Pausar". Zero erros de console. Nenhum teste automatizado prova que o vídeo *de fato aparece na tela* — só a verificação manual/visual faz isso, por isso ela é registrada aqui como parte da cobertura real da sprint, não como substituível pelos testes unitários.

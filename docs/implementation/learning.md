@@ -307,3 +307,109 @@ Ver a seção "Estratégia futura de persistência" em `architecture.md` para o 
 Essa é a mesma ideia, em miniatura, do padrão "Repository" usado em arquiteturas maiores (hexagonal, ports & adapters): a regra de negócio depende de uma **interface**, não de uma **implementação concreta** de acesso a dados.
 
 **Exercício final da sprint:** escreva (sem instalar Drizzle, só como exercício de design) a assinatura de tipos de uma tabela `channels` no estilo Drizzle (`pgTable("channels", { id: ..., name: ..., ... })`) que corresponderia ao schema Zod `Channel` que já temos — quais tipos de coluna PostgreSQL você escolheria para `status` (um enum de 3 valores) e para `isFeatured` (booleano)?
+
+---
+
+## Sprint 03 — Player
+
+### 1. O padrão Adapter, na prática (não só o nome)
+
+**O problema:** o elemento `<video>` nativo só sabe tocar o que o navegador entende sozinho. HLS (`.m3u8`) não é um desses formatos na maioria dos navegadores (só Safari) — por isso existe `hls.js`, uma biblioteca que "ensina" o navegador a tocar HLS via Media Source Extensions. Se `useVideoPlayer` chamasse `hls.js` diretamente, ficaria para sempre acoplado a essa biblioteca específica.
+
+**A solução, com o código real:**
+```typescript
+// types/player.ts — o CONTRATO, não uma implementação
+export interface MediaSourceAdapter {
+  attach(video: HTMLVideoElement, src: string): void | Promise<void>;
+  destroy(): void;
+}
+
+// hooks/useVideoPlayer.ts — só conhece o contrato
+const adapter = createAdapter(video, src); // podia devolver QUALQUER implementação
+adapterRef.current = adapter;
+await adapter.attach(video, src);
+```
+
+O hook nunca escreve `import Hls from "hls.js"` — só `createAdapter`, que é a ÚNICA peça que sabe que hls.js existe. Isso é "inversão de dependência": em vez do código de alto nível (`useVideoPlayer`) depender do de baixo nível (`hls.js`), os dois dependem de uma interface no meio.
+
+**Por que isso não é over-engineering aqui (mas poderia ser, em outro contexto):** o teste disso é se existe mais de uma implementação real, hoje ou previsivelmente amanhã. Aqui já existem duas (`nativeAdapter`, `hlsAdapter`), e uma terceira (Shaka/DASH) é um caminho natural documentado (ADR-016) — a interface já está "pagando aluguel".
+
+**Exercício:** esboce a assinatura de um `shakaAdapter` (sem implementar) que cumpriria a mesma interface `MediaSourceAdapter` — o que mudaria na função `createAdapter` para escolher entre os três motores?
+
+---
+
+### 2. `import()` dinâmico para code-splitting de uma biblioteca pesada
+
+```typescript
+// hlsAdapter.ts
+async attach(video, src) {
+  const { default: Hls } = await import("hls.js"); // só baixado AQUI, só quando chamado
+  // ...
+}
+```
+
+**A prova de que funcionou**, direto do output do `bun run build`:
+```
+dist/assets/index-*.js   468.18 kB   ← tudo, EXCETO hls.js
+dist/assets/hls-*.js     595.01 kB   ← só hls.js, em arquivo separado
+```
+
+Vite (o bundler) detecta automaticamente um `import()` dinâmico e cria um chunk separado para o que é importado — ninguém que só navega pelo catálogo (sem nunca abrir um vídeo) baixa esses 595 KB. Isso é diferente de um `import Hls from "hls.js"` no topo do arquivo, que entraria no bundle principal sempre, usado ou não.
+
+**Exercício:** usando as DevTools (aba Network, com cache desabilitado), confirme você mesma: abra `/catalogo` (sem clicar em nenhum conteúdo) e observe que `hls-*.js` NÃO é baixado; depois abra um conteúdo disponível e observe o chunk aparecer na lista.
+
+---
+
+### 3. Traduzindo eventos nativos do `<video>` em um `PlayerState` próprio
+
+A API nativa de eventos de mídia (`canplay`, `playing`, `waiting`, `error`, ...) é rica, mas "crua" — não existe um único campo "status atual" no elemento `<video>`. `useVideoPlayer` escuta um subconjunto desses eventos (os mesmos que a engenharia reversa confirmou que o Saimo TV também usa, `docs/reverse-engineering/findings.md` E-024) e os traduz para uma máquina de estados pequena e própria:
+
+```typescript
+type PlayerStatus = "idle" | "loading" | "playing" | "paused" | "error" | "ended";
+```
+
+**Por que não expor os eventos nativos direto para a UI:** `VideoPlayer.tsx` só precisa saber "estou em qual desses 6 estados" para decidir o que desenhar — não precisa (nem deveria) saber a diferença entre os eventos `waiting` e `stalled`, por exemplo. Essa tradução é o que torna o componente de apresentação simples (`{state.status === "error" && <Overlay/>}`), sem `if`s espalhados reagindo a eventos de DOM.
+
+**O evento sintético (`hlsFatalError`):** nem todo erro do hls.js dispara o evento nativo `error` do `<video>` — a biblioteca tem seu próprio sistema de eventos. Para não duplicar a lógica de "o que fazer quando o player falha" em dois lugares, `hlsAdapter` traduz o erro do hls.js para um evento de DOM sintético (`video.dispatchEvent(new ErrorEvent("hlsFatalError", ...))`), que o hook escuta exatamente como escuta o `error` nativo. Um único caminho de tratamento de erro, não importa a origem.
+
+**Exercício:** adicione um evento `progress` (dispara enquanto o navegador baixa dados) e exponha, no `PlayerState`, uma informação simples derivada dele (ex.: `hasBuffered: boolean`, true depois do primeiro `progress`).
+
+---
+
+### 4. O guard de condição de corrida, de novo — agora em código nosso
+
+Documentamos esse padrão só como OBSERVAÇÃO na Fase 03 da engenharia reversa (`docs/reverse-engineering/learning.md`, item 15). Na Sprint 03, implementamos a mesma ideia, de forma original:
+
+```typescript
+useEffect(() => {
+  let cancelled = false;
+  // ... várias operações assíncronas (ex.: adapter.attach(), que pode envolver import() de hls.js) ...
+  someAsyncOperation().then((result) => {
+    if (cancelled) return; // o efeito já foi "substituído" — ignora o resultado tardio
+    setState(/* aplica o resultado */);
+  });
+  return () => { cancelled = true; }; // React chama isso ANTES de rodar o efeito de novo
+}, [src]);
+```
+
+**O cenário real que isso evita:** usuária clica rapidamente em dois conteúdos HLS diferentes. O primeiro `attach()` ainda está esperando o `import("hls.js")` resolver quando o segundo começa. Sem o guard, o resultado do PRIMEIRO poderia "vencer a corrida" e sobrescrever o estado depois do segundo já ter assumido — um bug sutil, de timing, difícil de reproduzir manualmente mas fácil de garantir com um teste.
+
+**O teste que prova isso** (`useVideoPlayer.test.tsx`, via dois adapters falsos com `destroyCallOrder`):
+```typescript
+rerender(<Harness src="src-b" />);
+await waitFor(() => expect(adapterB.attach).toHaveBeenCalledTimes(1));
+expect(adapterA.destroy).toHaveBeenCalledOnce();      // o antigo foi destruído
+expect(destroyCallOrder).toEqual(["A"]);               // ANTES do novo ser criado
+```
+
+**Exercício:** remova temporariamente o guard `cancelled` do hook (comente as duas linhas que o usam) e tente escrever um teste que **falhe** por causa disso — qual cenário de timing você precisaria simular?
+
+---
+
+### 5. Por que simplificamos em relação ao que vimos no Saimo TV (e isso é uma decisão, não uma lacuna)
+
+A Fase 03 da engenharia reversa documentou um sistema de recuperação de reprodução bem mais sofisticado no alvo: múltiplas fontes por canal, watchdog de 12s (sem primeiro frame) e de 25s (travamento, checado a cada 2s), fallback automático para a próxima fonte, tudo registrado em `docs/reverse-engineering/findings.md` (E-020). A Sprint 03 **não** replica isso (ADR-016) — e a justificativa não é "não deu tempo", é estrutural: nosso catálogo fictício não tem múltiplas fontes por conteúdo (todas apontam para a mesma mídia de demonstração), então não haveria "próxima fonte" para qual fazer fallback.
+
+**A lição de engenharia aqui:** reconhecer um padrão sofisticado (pela engenharia reversa) não obriga a implementá-lo — obriga a reconhecer *quando* ele se aplicaria, e documentar essa decisão (em vez de simplesmente não pensar nela). Se o backlog crescer para incluir múltiplas fontes por conteúdo, o padrão já está estudado e documentado, pronto para ser reimplementado (com código original) quando fizer sentido.
+
+**Exercício:** usando a assinatura de `MediaSourceAdapter` já existente, esboce (só em texto/pseudocódigo) como um hook `usePlayerWithFallback(sources: string[])` poderia envolver `useVideoPlayer` para tentar a próxima fonte da lista quando `state.status === "error"` — sem reescrever `useVideoPlayer` por dentro.

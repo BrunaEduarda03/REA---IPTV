@@ -53,6 +53,7 @@ Cada entrada: Decisão → Contexto → Alternativas → Justificativa → Conse
 - **Alternativas:** gravar vídeo próprio e hospedar; usar apenas MP4 progressivo (mais simples, mas não exercitaria `hls.js`/adaptação de bitrate, que é um objetivo de aprendizado explícito do laboratório, ver Fase 03).
 - **Justificativa:** um stream HLS de teste público resolve os dois requisitos (ensinar HLS de verdade, sem usar conteúdo não autorizado).
 - **Consequências:** a URL exata do stream de demonstração será escolhida e documentada no Sprint 03 (não antes — ainda não precisamos dela para planejar).
+- **Status:** ✅ Implementada. URL escolhida: `https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8` — um master playlist HLS mantido publicamente pela Mux para testes de player, cujo conteúdo é o "Big Buck Bunny" (curta de animação licenciado Creative Commons, o material de teste de vídeo mais usado da indústria). Verificado em reprodução real (ver `progress.md`, Sprint 03): manifesto mestre + 3 variantes de qualidade + segmentos `.ts` baixados com sucesso (HTTP 206), confirmando adaptação de bitrate de verdade via `hls.js`. Todos os 20 conteúdos fictícios do catálogo apontam para a mesma URL (`features/player/lib/demoStream.ts`) — o objetivo é a mecânica do player, não simular 20 vídeos distintos.
 
 ---
 
@@ -132,6 +133,24 @@ Estas substituem as decisões em aberto do planejamento inicial (abaixo, mantida
 - **Contexto:** sem desempate, a ordem de itens com o mesmo valor de comparação dependeria da ordem de inserção do array — que é estável *hoje* (array fixo em memória), mas deixaria de ser uma garantia explícita se a fonte de dados mudar (ex.: para uma consulta SQL sem `ORDER BY` determinístico).
 - **Justificativa:** paginação **só é confiável** se a mesma consulta sempre devolver os itens na mesma ordem — caso contrário, um item pode aparecer em duas páginas (duplicado) ou em nenhuma, dependendo de reordenações não intencionais entre duas requisições.
 - **Consequências:** um teste dedicado (`catalog.test.ts`, "pagina deterministicamente") verifica exatamente essa propriedade — a página 2 nunca repete um id já visto na página 1.
+
+---
+
+## ADR-015 — `MediaSourceAdapter`: interface única para motor nativo e hls.js, com import dinâmico (Sprint 03)
+
+- **Decisão:** `features/player/types/player.ts` define uma interface `MediaSourceAdapter` (`attach`/`destroy`) implementada por `nativeAdapter.ts` e `hlsAdapter.ts`; `createAdapter.ts` escolhe qual usar testando a URL (`.m3u8` + suporte nativo do navegador).
+- **Contexto:** o objetivo explícito da sprint era suportar múltiplos motores sem acoplar o hook de orquestração a nenhum deles — o mesmo problema que o Saimo TV resolve (de forma muito mais elaborada, com 3 motores) segundo a Fase 03 da engenharia reversa.
+- **Alternativas:** um único `if/else` dentro do próprio hook, sem interface formal (mais rápido de escrever agora, mas acopla o hook a `hls.js` diretamente, dificultando adicionar Shaka/DASH depois); usar uma biblioteca de player pronta (ex. Video.js) — rejeitado porque o objetivo de aprendizado explícito é entender a mecânica de troca de motor, não delegar isso a uma lib.
+- **Justificativa:** com a interface, `useVideoPlayer` nunca importa `hls.js` — só `createAdapter`. Isso também torna o hook 100% testável com um adapter falso (ver `useVideoPlayer.test.tsx`), sem precisar simular a API real do hls.js em cada teste do hook.
+- **`hls.js` é importado dinamicamente** (`await import("hls.js")`) dentro de `hlsAdapter.attach()`, não no topo do arquivo — confirmado pelo build (`bun run build`): o bundle principal do frontend ficou em ~468 KB, e `hls.js` (595 KB) foi parar em um chunk **separado**, baixado só quando um vídeo HLS é de fato aberto.
+- **Consequências:** mais um nível de indireção (interface + 3 implementações) do que a abordagem mais direta — aceitável pelo ganho de testabilidade e pela possibilidade real de adicionar um adapter Shaka/DASH no futuro sem tocar no hook.
+
+## ADR-016 — Watchdog de travamento simplificado (não replicado o sistema completo do Saimo TV)
+
+- **Decisão:** a Sprint 03 **não** implementa os watchdogs de 12s/25s observados no Saimo TV (Fase 03, E-020) nem o sistema de múltiplas fontes por canal com fallback automático — o player trata apenas os eventos nativos do `<video>` (`error`, `waiting`, `ended`, etc.) e um evento sintético de erro fatal do hls.js.
+- **Contexto:** esses mecanismos são bem documentados em `docs/reverse-engineering/` e seriam perfeitamente replicáveis como *padrão* (não como código) — mas o catálogo desta implementação não tem múltiplas fontes por conteúdo (ADR-005: todos apontam para a mesma mídia de demonstração), então um sistema de fallback entre fontes não teria nada para fazer fallback **entre**.
+- **Justificativa:** implementar um mecanismo elaborado sem um cenário real para exercitá-lo violaria o princípio "evite abstrações desnecessárias" já seguido nas sprints anteriores.
+- **Consequências:** registrado aqui como item explícito de **evolução futura** (ver `backlog.md`, Sprint 05/Opcional) — se o catálogo ganhar múltiplas fontes por conteúdo numa sprint futura, o watchdog + fallback é o próximo passo natural, e o padrão já está documentado em `docs/reverse-engineering/findings.md` (E-020) para quando for implementado.
 
 ---
 

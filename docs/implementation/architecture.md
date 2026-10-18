@@ -261,3 +261,43 @@ export const catalogRepository = {
 ```
 
 O que mudaria: (1) as funções passariam a ser `async` (hoje são síncronas, por serem só acesso a um array); (2) `catalog.service.ts` precisaria de `await` nas chamadas ao repository, mas **nenhuma regra de negócio mudaria** — filtro, busca, ordenação e paginação continuariam sendo responsabilidade do service, não do banco (ou, numa evolução posterior, parte disso poderia migrar para a query SQL — uma decisão a ser tomada quando o volume de dados justificar). O schema Zod (`Channel`, `Category`) viraria também o shape das tabelas Drizzle (`drizzle-zod` consegue gerar um a partir do outro). Essa troca **não está planejada para a Sprint 03** — fica registrada aqui como o caminho natural, não como tarefa agendada.
+
+---
+
+## Módulo de Player (Sprint 03) — arquitetura efetivamente implementada
+
+### Diagrama
+
+Ver [`diagrams/player-architecture.mmd`](./diagrams/player-architecture.mmd).
+
+### Camadas (`apps/web/src/features/player/`)
+
+| Camada | Arquivo(s) | Responsabilidade |
+|---|---|---|
+| Apresentação | `components/VideoPlayer.tsx`, `components/PlayerControls.tsx` | Renderiza `<video>` + overlays de loading/erro conforme `PlayerState`; nunca fala com `hls.js` diretamente |
+| Orquestração | `hooks/useVideoPlayer.ts` | Cria/destrói o motor certo a cada troca de `src`, traduz eventos nativos do `<video>` em `PlayerState`, expõe `play`/`pause`/`toggleMute`/`setVolume` |
+| Seleção de motor | `adapters/createAdapter.ts` | Decide nativo vs. hls.js testando a URL — mesma lógica (não o mesmo código) aprendida na Fase 03 da engenharia reversa (`isHls`/suporte nativo do navegador) |
+| Motores | `adapters/nativeAdapter.ts`, `adapters/hlsAdapter.ts` | Implementam `MediaSourceAdapter` (`attach`/`destroy`) — intercambiáveis, o hook não sabe qual está em uso |
+| Tipos | `types/player.ts` | `PlayerState`, `MediaSourceAdapter` — o contrato entre todas as camadas acima |
+| Apoio | `lib/describeMediaError.ts`, `lib/demoStream.ts` | Tradução de `MediaError.code` → mensagem em português; constante da mídia de demonstração (ADR-005) |
+
+### Ciclo de vida e eventos (o que é nativo do navegador vs. lógica própria)
+
+🟢 **Nativo do `<video>`, só traduzido para `PlayerState`:** `canplay` → `paused` (pronto, aguardando o usuário dar play); `playing` → `playing`; `pause` → `paused`; `waiting` → `loading`; `ended` → `ended`; `error` → `error` (com `describeMediaError(video.error)`); `volumechange` → atualiza `isMuted`/`volume`.
+
+🟢 **Lógica própria:** um evento sintético `hlsFatalError`, disparado pelo `hlsAdapter` via `video.dispatchEvent(new ErrorEvent(...))` quando o hls.js reporta um erro fatal — porque erros do hls.js nem sempre disparam o evento nativo `error` do elemento. Isso mantém um **único** lugar (`useVideoPlayer`) decidindo "o player está com erro", não importa se o erro veio do navegador ou da biblioteca.
+
+🟢 **Guard de condição de corrida:** a flag `cancelled`, fechada sobre o escopo do `useEffect`, é o padrão documentado em `docs/reverse-engineering/learning.md` (item 15), reimplementado aqui de forma original: se `src` mudar de novo antes do `attach()` assíncrono (hls.js) terminar, a tentativa antiga nunca aplica seu resultado sobre o player do `src` novo.
+
+### O que foi deliberadamente simplificado em relação ao observado no Saimo TV
+
+Ver ADR-016: sem watchdogs de tempo, sem múltiplas fontes por conteúdo, sem fallback automático entre fontes — esses mecanismos (documentados em detalhe em `docs/reverse-engineering/findings.md`, E-020) ficam para uma evolução futura, quando o catálogo tiver mais de uma fonte por conteúdo para justificá-los.
+
+### Lazy-loading confirmado pelo build
+
+```
+dist/assets/index-*.js   468.18 kB │ gzip: 145.32 kB   ← bundle principal
+dist/assets/hls-*.js     595.01 kB │ gzip: 185.84 kB   ← hls.js, chunk separado
+```
+
+O `import("hls.js")` dinâmico dentro de `hlsAdapter.attach()` é o que garante esse chunk separado — qualquer navegação que nunca abra um vídeo HLS (ex.: só olhar o catálogo) nunca baixa esses 595 KB.

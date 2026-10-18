@@ -88,9 +88,43 @@ $ bun run build       → sucesso (api: 241 KB; web: 462 KB / 143 KB gzip)
 
 **Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 03 (player).
 
-## Sprint 03 — Player
+## Sprint 03 — Player ✅ Concluída (aguardando aprovação para Sprint 04)
 
-*Ainda não iniciado.*
+**Contexto recuperado antes de começar:** `git status` limpo (Sprint 02 já commitada pelo usuário, `d7af838`), `bun run test` reconfirmado em 42/42 antes de qualquer alteração — nenhum bloqueio. Diferente das Sprints 01/02, esta foi autorizada por uma instrução direta ("vá para sprint 3"), sem um prompt detalhado novo — a especificação usada foi a já aprovada em `backlog.md` (item 7, "Player de vídeo") e as ADRs já registradas (ADR-005).
+
+**Funcionalidades concluídas:**
+- `MediaSourceAdapter`: interface comum (`attach`/`destroy`) para dois motores de reprodução.
+- `nativeAdapter` — delega ao `<video>` nativo (MP4 progressivo, ou HLS em navegadores com suporte nativo).
+- `hlsAdapter` — `hls.js` importado **dinamicamente** (chunk separado, confirmado pelo build), com tradução de erros fatais do hls.js para um evento sintético compreendido pelo hook.
+- `createAdapter` — escolhe o motor testando a URL (`.m3u8` + suporte nativo do navegador).
+- `useVideoPlayer` — hook de orquestração: cria/destrói o motor a cada troca de `src` (nunca dois motores ativos ao mesmo tempo), traduz eventos nativos do `<video>` em `PlayerState`, expõe `play`/`pause`/`toggleMute`/`setVolume`, com guard contra condição de corrida.
+- `VideoPlayer` + `PlayerControls` — componente de apresentação com overlays de loading/erro e controles acessíveis.
+- Integração em `ChannelDetailPage`: conteúdos com `status: "available"` mostram o player (com a mídia de demonstração, ADR-005); os demais mantêm a thumbnail estática.
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  12 pass, 0 fail
+apps/api:         14 pass, 0 fail
+apps/web:         33 pass, 0 fail  (9 arquivos de teste, incluindo os 17 novos da feature player)
+```
+Total: **59 testes, 59 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso; hls.js confirmado em chunk separado (595 KB, só baixado sob demanda)
+```
+
+**Verificação end-to-end real (a mais significativa até agora):** API e frontend reais iniciados, página `/catalogo/ch-01` aberta em Chromium real via `mcp__rea__capture_browser_scenario`, botão "Reproduzir" clicado de verdade. A captura de rede confirmou **reprodução HLS real**: manifesto mestre (`x36xhzz.m3u8`, HTTP 206) → três variantes de qualidade carregadas pelo hls.js → segmentos `.ts` reais baixados e decodificados. Screenshot confirmou o vídeo "Big Buck Bunny" (mídia de teste pública licenciada Creative Commons) renderizado na tela, botão alternando para "Pausar", controle de volume refletindo o estado. **Zero erros de console, zero page errors.**
+
+**Problemas encontrados e resolvidos:**
+1. `bg-surface-base/70`/`bg-surface-base/90` (modificador de opacidade do Tailwind) não funcionam sobre tokens definidos como `var(--cor-hex)` — mesmo problema já visto na Sprint 02 (`ErrorState`), desta vez nos overlays do `VideoPlayer`; corrigido usando `bg-black/70`/`bg-black/90` (cor nativa do Tailwind, que suporta o modificador).
+2. Um comentário `eslint-disable-next-line jsx-a11y/media-has-caption` referenciava uma regra de um plugin não instalado neste projeto — ESLint falhou com "Definition for rule not found"; corrigido removendo o comentário (a regra nunca esteve ativa aqui).
+3. `createAdapter.test.ts` mockava `hls.js` de forma incompleta (construtor sem método `.on()` na instância) — `hlsAdapter.attach()` lançava `TypeError: hls.on is not a function` ao rodar o teste de seleção de motor; corrigido alinhando o mock ao shape real usado por `hlsAdapter.ts`.
+4. `renderHook` (Testing Library) não monta nenhum `<video>` real no DOM — o hook, que depende de `videoRef.current` preenchido, nunca chegava a chamar `attach()`. Corrigido trocando para um componente de teste (`Harness`) que renderiza o `<video>` de verdade com `render()`, do mesmo jeito que `VideoPlayer.tsx` faz em produção.
+
+**Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 04 (estado e preferências — favoritos, persistência local).
 
 ## Sprint 04 — Estado e preferências
 

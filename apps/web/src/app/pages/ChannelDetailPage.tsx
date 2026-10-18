@@ -3,6 +3,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useChannel } from "@/features/catalog/hooks/useChannel";
 import { useCategories } from "@/features/catalog/hooks/useCategories";
 import { channelStatusLabel } from "@/features/catalog/lib/statusLabels";
+import { VideoPlayer } from "@/features/player/components/VideoPlayer";
+import { DEMO_STREAM_URL } from "@/features/player/lib/demoStream";
 
 function DetailSkeleton() {
   return (
@@ -39,11 +41,19 @@ export function ChannelDetailPage() {
 
       {channelQuery.data && (
         <>
-          <img
-            src={channelQuery.data.thumbnail}
-            alt=""
-            className="aspect-video w-full rounded-token object-cover"
-          />
+          {channelQuery.data.status === "available" ? (
+            <VideoPlayer
+              src={DEMO_STREAM_URL}
+              poster={channelQuery.data.thumbnail}
+              title={channelQuery.data.name}
+            />
+          ) : (
+            <img
+              src={channelQuery.data.thumbnail}
+              alt=""
+              className="aspect-video w-full rounded-token object-cover"
+            />
+          )}
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-text-primary">{channelQuery.data.name}</h1>
