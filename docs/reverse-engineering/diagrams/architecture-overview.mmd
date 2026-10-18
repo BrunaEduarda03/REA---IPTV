@@ -1,0 +1,52 @@
+%% Diagrama de arquitetura observada — Saimo TV
+%% Baseado em: E-001 a E-010 (docs/reverse-engineering/findings.md)
+%% Verde sólido = fato verificado · Tracejado = inferência/hipótese
+
+flowchart TB
+    subgraph Cliente["Navegador do usuário"]
+        SPA["SPA React\n(Vite + Rolldown, React Router)\nchunks: index, catalog, tv, player,\nPainelDeCanais, epgWorker"]
+        LS[("localStorage\nsaimo-telemetria-id\ntv-volume\nsaimo-catalogo-v2")]
+        Worker["epgWorker.js\n(Web Worker)\nnormalização e merge de EPG"]
+        Player["player.js\nhls.js 1.7.3 + mpegts.js\n+ Google Cast SDK"]
+        SPA --> LS
+        SPA --> Worker
+        SPA --> Player
+    end
+
+    subgraph CFPages["Cloudflare Pages — saimo-tv.pages.dev"]
+        Static["Assets estáticos\n(HTML/JS/CSS/manifest)"]
+        Proxy["/api/proxy (Pages Function)\nproxy server-side p/ contornar CORS"]
+    end
+
+    subgraph CFWorker["Cloudflare Worker — saimo-monitor.gabrielsaimo68.workers.dev"]
+        Monitor["/v1/fontes\n/v1/hello\nmonitoramento de servidores de stream"]
+    end
+
+    subgraph GitHub["GitHub (raw.githubusercontent.com)"]
+        Catalogo["gabrielsaimo/SaimoPlayer\ncanais.txt, catalogo.txt"]
+        PlutoEPG["matthuisman/i.mjh.nz\nPlutoTV/br.xml"]
+    end
+
+    subgraph EPGExterno["Fontes externas de EPG"]
+        GuiaTV["www.guiadetv.com\n/canal/&lt;slug&gt; (HTML)"]
+        IptvEpg["iptv-epg.org/files/epg-br.xml"]
+        OpenEpg["open-epg.com/files/brazil3.xml"]
+    end
+
+    subgraph Imagens["Hosts de imagem de terceiros"]
+        Logos["imgur, mondrian.claro.com.br,\nwikimedia, fontedecanais.*, etc."]
+    end
+
+    SPA -- "GET assets" --> Static
+    SPA -- "GET /api/proxy?url=..." --> Proxy
+    Proxy -- "fetch server-side" --> GuiaTV
+    SPA -- "GET canais.txt / catalogo.txt" --> Catalogo
+    Worker -- "fetch br.xml" --> PlutoEPG
+    Worker -- "fetch epg-br.xml" --> IptvEpg
+    Worker -- "fetch brazil3.xml" --> OpenEpg
+    SPA -- "GET /v1/fontes, /v1/hello" --> Monitor
+    SPA -- "GET logos" --> Logos
+    Player -. "cast session" .-> CastReceiver["Dispositivo Chromecast\n(hipótese: não observado)"]
+
+    classDef hypothesis stroke-dasharray: 5 5
+    class CastReceiver hypothesis

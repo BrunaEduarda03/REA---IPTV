@@ -1,0 +1,8 @@
+# Evidências brutas de engenharia reversa: contêm código de terceiros
+# (bundles JS/CSS minificados, snapshots de DOM, screenshots) baixados
+# do alvo para análise local. Não versionadas para evitar redistribuir
+# material proprietário de terceiros em um repositório remoto.
+research/artifacts/
+
+# Sistema
+.DS_Store
