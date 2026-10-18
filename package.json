@@ -1,0 +1,22 @@
+{
+  "name": "saimotv-lab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SaimoTV Lab — implementação educacional e independente (Fase 05). Nao usa codigo-fonte do alvo investigado.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c green,blue \"bun run --cwd apps/api dev\" \"bun run --cwd apps/web dev\"",
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd packages/shared build && bun run --cwd apps/api build && bun run --cwd apps/web build",
+    "lint": "bun run --cwd apps/api lint && bun run --cwd apps/web lint",
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck",
+    "test": "bun run --cwd packages/shared test && bun run --cwd apps/api test && bun run --cwd apps/web test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

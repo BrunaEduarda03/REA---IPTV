@@ -1,0 +1,9 @@
+{
+  "name": "@saimotv/config",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Configuracao compartilhada (tsconfig base) entre os pacotes do monorepo.",
+  "files": [
+    "tsconfig.base.json"
+  ]
+}

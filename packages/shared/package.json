@@ -1,0 +1,24 @@
+{
+  "name": "@saimotv/shared",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Contratos e tipos compartilhados entre apps/web e apps/api (schemas Zod, tipos inferidos).",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "echo \"@saimotv/shared: consumido como fonte TS diretamente, sem etapa de build nesta sprint\""
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}

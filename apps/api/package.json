@@ -1,0 +1,25 @@
+{
+  "name": "@saimotv/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --target bun --outdir dist",
+    "start": "bun run dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@saimotv/shared": "workspace:*",
+    "hono": "^4.6.14",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3",
+    "eslint": "^9.17.0",
+    "typescript-eslint": "^8.19.1"
+  }
+}

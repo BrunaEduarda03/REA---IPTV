@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Tokens de design como variáveis CSS (consumidos por tailwind.config.ts).
+ * Um único lugar para a identidade visual — trocar aqui muda a aplicação
+ * inteira, sem procurar cor "hardcoded" em componente nenhum.
+ */
+:root {
+  --color-surface-base: #0b0d12;
+  --color-surface-raised: #14171f;
+  --color-surface-overlay: #1c2029;
+
+  --color-border: #262b36;
+  --color-border-strong: #3a4150;
+
+  --color-text-primary: #f4f5f7;
+  --color-text-secondary: #b6bcc9;
+  --color-text-muted: #767e8f;
+
+  --color-accent: #f5a524;
+  --color-accent-hover: #ffb84d;
+  --color-accent-muted: #4a3a1a;
+
+  --color-danger: #f3484f;
+  --color-danger-muted: #3a1a1c;
+
+  --color-success: #3ecf8e;
+
+  --radius-base: 0.75rem;
+  --space-gutter: 1.5rem;
+}
+
+body {
+  @apply bg-surface-base text-text-primary antialiased;
+}
+
+/* Foco visível e consistente em qualquer elemento interativo — acessibilidade
+   de teclado não é opcional (ver docs/implementation/architecture.md). */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

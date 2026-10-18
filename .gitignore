@@ -6,3 +6,14 @@ research/artifacts/
 
 # Sistema
 .DS_Store
+
+# Implementação (SaimoTV Lab — Fase 05): monorepo Bun
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+coverage/
+bun.lock.bak
