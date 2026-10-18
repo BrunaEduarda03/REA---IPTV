@@ -4,6 +4,7 @@ import { useUiStore } from "@/app/store/uiStore";
 const NAV_ITEMS = [
   { to: "/", label: "Início", end: true },
   { to: "/catalogo", label: "Catálogo", end: false },
+  { to: "/favoritos", label: "Favoritos", end: true },
 ];
 
 /**

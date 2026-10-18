@@ -12,6 +12,7 @@ import { ChannelCard } from "@/features/catalog/components/ChannelCard";
 import { CatalogSkeleton } from "@/features/catalog/components/CatalogSkeleton";
 import { Pagination } from "@/features/catalog/components/Pagination";
 import { ViewToggle } from "@/features/catalog/components/ViewToggle";
+import { FavoriteButton } from "@/features/favorites/components/FavoriteButton";
 
 /**
  * Busca, categoria e página vivem na URL (`useSearchParams`), nunca em
@@ -110,7 +111,12 @@ export function CatalogPage() {
             }
           >
             {data.items.map((channel) => (
-              <ChannelCard key={channel.id} channel={channel} viewMode={viewMode} />
+              <ChannelCard
+                key={channel.id}
+                channel={channel}
+                viewMode={viewMode}
+                actions={<FavoriteButton channelId={channel.id} channelName={channel.name} />}
+              />
             ))}
           </div>
 

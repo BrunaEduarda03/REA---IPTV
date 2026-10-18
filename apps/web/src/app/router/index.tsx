@@ -3,6 +3,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { HomePage } from "@/app/pages/HomePage";
 import { CatalogPage } from "@/app/pages/CatalogPage";
 import { ChannelDetailPage } from "@/app/pages/ChannelDetailPage";
+import { FavoritesPage } from "@/app/pages/FavoritesPage";
 import { NotFoundPage } from "@/app/pages/NotFoundPage";
 
 const router = createBrowserRouter([
@@ -27,6 +28,14 @@ const router = createBrowserRouter([
     element: (
       <PageShell>
         <ChannelDetailPage />
+      </PageShell>
+    ),
+  },
+  {
+    path: "/favoritos",
+    element: (
+      <PageShell>
+        <FavoritesPage />
       </PageShell>
     ),
   },

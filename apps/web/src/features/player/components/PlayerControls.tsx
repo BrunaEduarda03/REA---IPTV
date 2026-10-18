@@ -7,9 +7,19 @@ interface PlayerControlsProps {
   onPause: () => void;
   onToggleMute: () => void;
   onVolumeChange: (value: number) => void;
+  isTheaterMode: boolean;
+  onToggleTheaterMode: () => void;
 }
 
-export function PlayerControls({ state, onPlay, onPause, onToggleMute, onVolumeChange }: PlayerControlsProps) {
+export function PlayerControls({
+  state,
+  onPlay,
+  onPause,
+  onToggleMute,
+  onVolumeChange,
+  isTheaterMode,
+  onToggleTheaterMode,
+}: PlayerControlsProps) {
   const isPlaying = state.status === "playing";
 
   return (
@@ -48,6 +58,17 @@ export function PlayerControls({ state, onPlay, onPause, onToggleMute, onVolumeC
           className="accent-accent"
         />
       </label>
+
+      <Button
+        type="button"
+        variant="ghost"
+        className="ml-auto px-3"
+        onClick={onToggleTheaterMode}
+        aria-label={isTheaterMode ? "Sair do modo cinema" : "Modo cinema"}
+        aria-pressed={isTheaterMode}
+      >
+        {isTheaterMode ? "Sair do modo cinema" : "Modo cinema"}
+      </Button>
     </div>
   );
 }

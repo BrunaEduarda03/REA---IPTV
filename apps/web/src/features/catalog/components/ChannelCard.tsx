@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Channel } from "@saimotv/shared";
 import type { ViewMode } from "../store/catalogUiStore";
@@ -6,6 +7,14 @@ import { channelStatusLabel } from "../lib/statusLabels";
 interface ChannelCardProps {
   channel: Channel;
   viewMode?: ViewMode;
+  /**
+   * Slot de composição (ex.: `FavoriteButton`) — o catálogo NUNCA importa a
+   * feature `favorites` diretamente; quem usa `ChannelCard` (uma página em
+   * `app/pages/`) é quem decide se/qual ação extra aparece no card. Mantém
+   * `features/catalog` e `features/favorites` desacopladas uma da outra
+   * (ver docs/implementation/architecture.md, "Princípios arquiteturais").
+   */
+  actions?: ReactNode;
 }
 
 /**
@@ -14,7 +23,7 @@ interface ChannelCardProps {
  * (coluna vs. linha), o conteúdo e o comportamento são idênticos — manter
  * um componente evita duplicar a lógica de status/destaque em dois lugares.
  */
-export function ChannelCard({ channel, viewMode = "grid" }: ChannelCardProps) {
+export function ChannelCard({ channel, viewMode = "grid", actions }: ChannelCardProps) {
   const isList = viewMode === "list";
 
   return (
@@ -25,7 +34,7 @@ export function ChannelCard({ channel, viewMode = "grid" }: ChannelCardProps) {
       }`}
     >
       <div
-        className={`shrink-0 overflow-hidden rounded-token bg-surface-overlay ${
+        className={`relative shrink-0 overflow-hidden rounded-token bg-surface-overlay ${
           isList ? "aspect-video w-32" : "aspect-video w-full"
         }`}
       >
@@ -35,6 +44,7 @@ export function ChannelCard({ channel, viewMode = "grid" }: ChannelCardProps) {
           loading="lazy"
           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         />
+        {actions && <div className="absolute right-1.5 top-1.5">{actions}</div>}
       </div>
 
       <div className="min-w-0 flex-1">

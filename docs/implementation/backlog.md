@@ -100,13 +100,13 @@ Uma funcionalidade só entra no MVP se resolver um requisito de aprendizado ou d
 ## Fora do MVP
 
 ### Opcional (candidatos ao Sprint 05, só se o MVP estiver sólido)
-- Picture-in-Picture
-- Theater Mode
-- Espelhamento de tela
-- Atalhos de teclado
-- Navegação por D-pad/controle remoto
-- EPG sintético (dados fictícios de programação)
-- Layout dedicado para telas grandes (TV)
+- ~~Theater Mode~~ → **implementado na Sprint 05** (ver `progress.md`, ADR-020)
+- ~~Atalhos de teclado~~ → **implementado na Sprint 05** (ver `progress.md`, ADR-020)
+- Picture-in-Picture — adiado; ver ADR-020 (dificuldade de verificação E2E em Chromium headless)
+- Espelhamento de tela — já é "Deliberadamente excluído" abaixo (múltiplos protocolos de cast), não um candidato real
+- Navegação por D-pad/controle remoto — adiado; escopo maior que um item (gerenciamento de foco em toda a aplicação, não só o player)
+- EPG sintético (dados fictícios de programação) — adiado; exigiria domínio de dados novo no backend
+- Layout dedicado para telas grandes (TV) — adiado; mudança transversal de design responsivo, não uma funcionalidade isolada
 
 ### Evolução futura (fora do escopo de qualquer sprint atual)
 - App desktop via Tauri
@@ -131,7 +131,7 @@ Uma funcionalidade só entra no MVP se resolver um requisito de aprendizado ou d
 | **02 — Catálogo** | Catálogo fictício navegável, com categorias e busca funcionando de ponta a ponta | 2 (completo), 3, 4, 5 |
 | **03 — Player** | Selecionar um item reproduz a mídia de demonstração, com loading/erro tratados | 6, 7, 8 |
 | **04 — Estado e preferências** | Favoritos persistem entre sessões; controles do player (volume, play/pause) funcionam e são testados | 9, controles de player |
-| **05 — Experiência avançada** | Conforme aprovado após o MVP — não iniciado sem decisão explícita sobre quais itens "Opcionais" entram | (opcional, ver acima) |
+| **05 — Experiência avançada** | Atalhos de teclado (espaço/setas/M/T) e modo cinema no player, verificados em navegador real | Opcionais: Theater Mode + atalhos de teclado (ver ADR-020) |
 | **06 — Qualidade e entrega** | Suite de testes completa rodando em CI local, acessibilidade revisada, build de produção gerado e documentado | 8, 10 (verificação final) |
 
 Cada sprint só começa após relatório de entrega da anterior (Etapa 10) e autorização explícita para avançar (Etapa 5, item 10).

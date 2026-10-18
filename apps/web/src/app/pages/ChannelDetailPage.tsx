@@ -5,6 +5,8 @@ import { useCategories } from "@/features/catalog/hooks/useCategories";
 import { channelStatusLabel } from "@/features/catalog/lib/statusLabels";
 import { VideoPlayer } from "@/features/player/components/VideoPlayer";
 import { DEMO_STREAM_URL } from "@/features/player/lib/demoStream";
+import { useIsTheaterMode } from "@/features/player/store/playerUiStore";
+import { FavoriteButton } from "@/features/favorites/components/FavoriteButton";
 
 function DetailSkeleton() {
   return (
@@ -21,11 +23,17 @@ export function ChannelDetailPage() {
   const { id = "" } = useParams<{ id: string }>();
   const channelQuery = useChannel(id);
   const categoriesQuery = useCategories();
+  const isTheaterMode = useIsTheaterMode();
 
   const category = categoriesQuery.data?.find((item) => item.id === channelQuery.data?.categoryId);
 
   return (
-    <article className="mx-auto flex max-w-2xl flex-col gap-4">
+    <article
+      data-theater-mode={isTheaterMode}
+      className={`mx-auto flex flex-col gap-4 transition-[max-width] ${
+        isTheaterMode ? "max-w-5xl" : "max-w-2xl"
+      }`}
+    >
       <Link to="/catalogo" className="w-fit text-sm text-accent hover:underline">
         ← Voltar ao catálogo
       </Link>
@@ -62,6 +70,7 @@ export function ChannelDetailPage() {
                   Destaque
                 </span>
               )}
+              <FavoriteButton channelId={channelQuery.data.id} channelName={channelQuery.data.name} />
             </div>
             {category && <p className="text-sm text-text-muted">{category.name}</p>}
           </div>

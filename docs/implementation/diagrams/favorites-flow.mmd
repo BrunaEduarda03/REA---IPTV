@@ -1,0 +1,36 @@
+%% Fluxo de favoritos — Sprint 04
+%% Composição via "actions slot" em ChannelCard; estado de cliente (Zustand+persist) cruzado com estado de servidor (TanStack Query)
+
+flowchart TB
+    subgraph PAGES["app/pages/ (camada de composição)"]
+        CATPAGE["CatalogPage.tsx"]
+        DETAILPAGE["ChannelDetailPage.tsx"]
+        FAVPAGE["FavoritesPage.tsx"]
+    end
+
+    subgraph CATALOG["features/catalog/ (não conhece favorites)"]
+        CARD["ChannelCard\nactions?: ReactNode  ← slot de composição"]
+        USECHANNELS["useChannels(query)\n(TanStack Query, server state)"]
+    end
+
+    subgraph FAVORITES["features/favorites/"]
+        BTN["FavoriteButton\naria-pressed, preventDefault/stopPropagation"]
+        STORE["favoritesStore (Zustand + persist)\nfavoriteIds: string[]"]
+        TOGGLE["toggleFavoriteIds(ids, id)\n— função pura"]
+        PARSE["parseFavoriteIds(raw)\n— validação Zod de fronteira"]
+    end
+
+    LS[("localStorage\nsaimotv-lab:favorites")]
+
+    CATPAGE -->|"actions={<FavoriteButton .../>}"| CARD
+    DETAILPAGE --> BTN
+    CARD --> BTN
+    BTN -->|"onClick → toggleFavorite(id)"| STORE
+    STORE --> TOGGLE
+    STORE <-->|"persist middleware\n(serializa/lê)"| LS
+    LS -.->|"merge() na reidratação"| PARSE
+    PARSE -->|"shape inválido → []"| STORE
+
+    FAVPAGE -->|"favoriteIds"| STORE
+    FAVPAGE -->|"page=1, pageSize=50"| USECHANNELS
+    FAVPAGE -->|"filtra items por favoriteIds.includes(id)\n(cruza client state + server state, sem endpoint novo)"| CARD

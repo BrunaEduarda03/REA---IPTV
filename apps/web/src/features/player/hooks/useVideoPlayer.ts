@@ -109,9 +109,12 @@ export function useVideoPlayer(src: string) {
     if (!video) return;
     // Mesma política de autoplay observada no Saimo TV (Fase 03): tenta
     // com som; se o navegador bloquear, tenta mudo antes de desistir.
-    video.play().catch(() => {
+    // `Promise.resolve(...)` por segurança: a spec garante que
+    // `video.play()` sempre devolve uma Promise, mas isso não é
+    // verdade em todo ambiente de teste (jsdom devolve `undefined`).
+    Promise.resolve(video.play()).catch(() => {
       video.muted = true;
-      video.play().catch(() => {});
+      Promise.resolve(video.play()).catch(() => {});
     });
   }, []);
 

@@ -301,3 +301,115 @@ dist/assets/hls-*.js     595.01 kB │ gzip: 185.84 kB   ← hls.js, chunk separ
 ```
 
 O `import("hls.js")` dinâmico dentro de `hlsAdapter.attach()` é o que garante esse chunk separado — qualquer navegação que nunca abra um vídeo HLS (ex.: só olhar o catálogo) nunca baixa esses 595 KB.
+
+---
+
+## Módulo de Favoritos (Sprint 04) — arquitetura efetivamente implementada
+
+### Diagrama
+
+Ver [`diagrams/favorites-flow.mmd`](./diagrams/favorites-flow.mmd).
+
+### Camadas (`apps/web/src/features/favorites/`)
+
+| Camada | Arquivo(s) | Responsabilidade |
+|---|---|---|
+| Domínio puro | `lib/toggleFavoriteIds.ts` | Função pura `(ids, id) => string[]` — adiciona/remove sem mutar o array recebido; não sabe nada de React, Zustand ou `localStorage` |
+| Validação de fronteira | `lib/parseFavoriteIds.ts` | `z.array(z.string())`; qualquer shape inesperado cai para `[]` em vez de lançar |
+| Estado + persistência | `store/favoritesStore.ts` | Zustand com middleware `persist`; `merge` customizado passa o dado lido do `localStorage` por `parseFavoriteIds` antes de aceitá-lo como estado inicial |
+| Apresentação | `components/FavoriteButton.tsx` | Botão de estrela; `aria-pressed`; `preventDefault`/`stopPropagation` (necessário por ficar aninhado dentro do `<Link>` do `ChannelCard`) |
+| Composição | `app/pages/CatalogPage.tsx`, `ChannelDetailPage.tsx`, `FavoritesPage.tsx` (novo) | Único lugar onde `favorites` e `catalog` se encontram — nenhuma das duas features importa a outra diretamente |
+
+### O padrão "actions slot": como `favorites` toca `catalog` sem acoplamento direto
+
+`ChannelCard` (da feature `catalog`) ganhou uma prop de composição:
+
+```tsx
+interface ChannelCardProps {
+  channel: Channel;
+  viewMode?: ViewMode;
+  actions?: ReactNode; // slot de composição — catalog não sabe o que entra aqui
+}
+```
+
+`catalog` nunca importa `features/favorites`. Quem decide o que passar em `actions` é a página (`app/pages/CatalogPage.tsx`), a camada de composição:
+
+```tsx
+<ChannelCard
+  channel={channel}
+  actions={<FavoriteButton channelId={channel.id} channelName={channel.name} />}
+/>
+```
+
+Isso é a mesma regra já declarada na seção "Princípios arquiteturais" acima ("features não se importam diretamente umas às outras... comunicam-se via... props explícitas no nível de composição") — a Sprint 04 foi a primeira a efetivamente precisar dela, porque é a primeira vez que duas features (`catalog`, `favorites`) precisam aparecer juntas no mesmo elemento visual. Ver ADR-017 para as alternativas descartadas.
+
+### Como `/favoritos` obtém dados completos a partir de uma lista de ids
+
+`favoritesStore` guarda **só ids** (`string[]`), nunca uma cópia de `Channel`. A página `FavoritesPage` cruza esse estado de cliente com o estado de servidor já existente:
+
+```tsx
+const favoriteIds = useFavoritesStore((state) => state.favoriteIds);
+const channelsQuery = useChannels({ page: 1, pageSize: 50, sort: "name_asc" });
+const favoriteChannels = (channelsQuery.data?.items ?? []).filter((channel) =>
+  favoriteIds.includes(channel.id),
+);
+```
+
+Nenhum endpoint novo foi criado — o catálogo fictício inteiro (20 itens) cabe em uma página de `pageSize: 50`, então a mesma consulta já usada em `/catalogo` cobre `/favoritos`. Ver ADR-019 para os limites dessa decisão (quando deixaria de valer).
+
+### Estado: onde cada coisa mora, atualizado
+
+| Estado | Onde mora | Por quê |
+|---|---|---|
+| `favoriteIds` (lista de ids favoritados) | **Zustand + `persist`** (`favoritesStore`) | Precisa sobreviver a recarregamento de página (critério de aceitação do backlog, item 9) — nem URL nem TanStack Query fazem isso sozinhos |
+| Dados completos de cada canal favoritado | **TanStack Query** (`useChannels`, já existente) | Continua sendo "server state"; `favorites` só referencia por id, nunca duplica o conteúdo |
+
+### Validação de dado de `localStorage` corrompido (lição direta da auditoria de RE)
+
+```typescript
+const favoriteIdsSchema = z.array(z.string());
+
+export function parseFavoriteIds(raw: unknown): string[] {
+  const result = favoriteIdsSchema.safeParse(raw);
+  return result.success ? result.data : [];
+}
+```
+
+Usado dentro do `merge` do `persist` — se o `localStorage` tiver JSON inválido, ou um shape inesperado (ex.: de uma versão antiga do schema, ou editado manualmente pelo usuário via DevTools), a store cai para lista vazia em vez de quebrar a aplicação. Ver ADR-018.
+
+---
+
+## Módulo de Experiência Avançada do Player — Atalhos de Teclado e Modo Cinema (Sprint 05)
+
+### Escopo escolhido entre os itens "Opcional" do backlog
+
+`backlog.md` deixa o Sprint 05 deliberadamente em aberto ("não iniciado sem decisão explícita sobre quais itens 'Opcionais' entram"). Desta sprint, foram escolhidos **atalhos de teclado** e **modo cinema** — ver ADR-020 para a justificativa completa de por que esses dois e não Picture-in-Picture, espelhamento de tela, navegação por D-pad, EPG sintético ou layout dedicado para TV.
+
+### Camadas (`apps/web/src/features/player/`)
+
+| Camada | Arquivo(s) | Responsabilidade |
+|---|---|---|
+| Domínio puro | `lib/mapKeyToAction.ts` | Função pura `(key: string) => PlayerShortcutAction \| null` — só traduz uma tecla em uma intenção; não sabe nada de `<video>`, React ou Zustand |
+| Estado de UI (não persistido) | `store/playerUiStore.ts` | Zustand simples, `isTheaterMode: boolean` — mesmo padrão já usado em `catalogUiStore.viewMode`: preferência de "como ver", não persistida, porque não é algo que se espera encontrar ligado ao reabrir a aplicação |
+| Apresentação/orquestração | `components/VideoPlayer.tsx` | Único lugar que liga as duas peças: um `onKeyDown` no contêiner do player chama `mapKeyToAction`, e despacha para as ações já existentes do `useVideoPlayer` (`play`/`pause`/`toggleMute`/`setVolume`) ou para `toggleTheaterMode` |
+| Apresentação | `components/PlayerControls.tsx` | Ganhou um botão "Modo cinema" / "Sair do modo cinema" (`aria-pressed`), ao lado dos controles já existentes |
+| Composição | `app/pages/ChannelDetailPage.tsx` | Lê `useIsTheaterMode()` e alarga o próprio contêiner da página (`max-w-2xl` → `max-w-5xl`) quando ativo — o player não decide o layout da página ao redor dele, só expõe o estado |
+
+### Atalhos implementados
+
+| Tecla | Ação | Observação |
+|---|---|---|
+| `Espaço` | play/pause | Reaproveita exatamente `play()`/`pause()` já expostos pelo hook da Sprint 03 |
+| `↑` / `↓` | volume +10% / −10% | Clampado entre 0 e 1 (`Math.min`/`Math.max`); chama o mesmo `setVolume()` já usado pelo slider |
+| `M` | mudo/ativar som | Reaproveita `toggleMute()` já existente |
+| `T` | modo cinema | Única ação nova de estado (`playerUiStore`) |
+
+O `onKeyDown` fica num `<div role="group" tabIndex={0}>` que envolve o `<video>` — os atalhos só funcionam quando esse contêiner (ou algo dentro dele) está focado, nunca globalmente no `document`. Isso evita o problema clássico de atalhos de player "roubarem" teclas de outros elementos da página (ex.: espaço dentro de um campo de busca).
+
+### Por que nenhum endpoint, schema ou estado de servidor novo foi necessário
+
+Atalhos de teclado e modo cinema são 100% estado de **apresentação/cliente** — nenhum dos dois precisa saber nada sobre o catálogo, a API ou favoritos. Por isso esta seção não tem "Decisões sobre estado: URL vs. Zustand vs. TanStack Query" própria: `isTheaterMode` é o único estado novo, e já está coberto pela mesma lógica da tabela de favoritos ("preferência pessoal → Zustand, não persistido").
+
+### Problema real encontrado e corrigido: `video.play()` nem sempre devolve uma `Promise`
+
+Ao escrever o primeiro teste que de fato chama `play()` através de um atalho de teclado (nenhum teste anterior clicava no botão "Reproduzir"), `bun run test` revelou que `video.play().catch(...)` em `useVideoPlayer.ts` quebra em ambientes onde `HTMLMediaElement.prototype.play()` não devolve uma `Promise` (confirmado isoladamente: `jsdom@25` devolve `undefined`). A especificação do DOM garante uma `Promise` em navegadores reais, mas o código não deveria depender silenciosamente disso. Corrigido envolvendo a chamada em `Promise.resolve(...)` nas duas tentativas (com som e, se falhar, mudo) — mesmo comportamento em produção, mais robusto em qualquer ambiente de teste.

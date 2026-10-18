@@ -57,3 +57,68 @@ Em vez de mockar `fetch` de forma ad-hoc em cada teste do frontend, `apps/web/sr
 ### Verificação manual real (não substituível por teste automatizado)
 
 Reprodução real testada em Chromium headless via `mcp__rea__capture_browser_scenario` (ver `progress.md` para os detalhes): clique em "Reproduzir" → manifesto HLS mestre carregado → hls.js escolheu entre as variantes de qualidade disponíveis → segmentos `.ts` baixados (HTTP 206) → vídeo "Big Buck Bunny" renderizado na tela, botão mudando para "Pausar". Zero erros de console. Nenhum teste automatizado prova que o vídeo *de fato aparece na tela* — só a verificação manual/visual faz isso, por isso ela é registrada aqui como parte da cobertura real da sprint, não como substituível pelos testes unitários.
+
+## Sprint 04 — cobertura real de favoritos
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `lib/toggleFavoriteIds.test.ts` | Adiciona id ausente; remove id presente; não muta o array recebido; alternar duas vezes volta ao estado original | 4 testes |
+| `lib/parseFavoriteIds.test.ts` | Aceita array de strings (vazio incluso); `test.each` com 7 formas de dado corrompido (string solta, número, objeto, `null`, `undefined`, array de números, array misto) — todas caem para `[]` | 11 testes |
+| `store/favoritesStore.test.ts` | `toggleFavorite` adiciona/remove; persiste sob a chave `saimotv-lab:favorites`; nova instância do módulo lê o que foi persistido antes; `localStorage` com JSON inválido cai para `[]`; `localStorage` com shape inesperado (`favoriteIds` não é array de strings) cai para `[]` | 5 testes |
+| `components/FavoriteButton.test.tsx` | Começa não marcado e alterna ao clicar (`aria-pressed`); clique atualiza a store compartilhada; clique dentro de um `<Link>` não navega (prova via `useLocation()`, não via mock de `preventDefault`) | 3 testes |
+| `app/pages/FavoritesPage.test.tsx` | Estado vazio quando nada foi favoritado; lista só os favoritados, cruzando `favoriteIds` (client state) com dados do catálogo (server state); **fluxo completo**: favoritar em `CatalogPage` → desmontar → montar `FavoritesPage` → item aparece (prova de integração entre store singleton e composição de página) | 3 testes |
+
+**Total Sprint 04: 24 testes novos** (nota: `parseFavoriteIds.test.ts` tem 2 testes diretos + 7 casos via `test.each`, mas apenas os 9 testes de corrupção e aceitação do arquivo somam 11 — ver contagem exata acima). **Total do monorepo após a sprint: 83 testes, 83 passando, 0 falhando.**
+
+### Decisão de teste notável: `vi.resetModules()` + `import()` dinâmico para testar um store singleton
+
+Zustand cria a store **uma vez**, na primeira importação do módulo — e a reidratação do `persist` a partir do `localStorage` acontece nesse exato momento. Isso significa que testar "o que acontece quando o app abre com `localStorage` já populado/corrompido" não é possível só chamando `useFavoritesStore.setState(...)` depois (a store já existe, já reidratou). A solução:
+
+```typescript
+beforeEach(() => {
+  localStorage.clear();
+  vi.resetModules(); // força o próximo import() a reavaliar o módulo do zero
+});
+
+test("localStorage corrompido não quebra a store", async () => {
+  localStorage.setItem(STORAGE_KEY, "isto não é JSON {{{");
+  const { useFavoritesStore } = await import("./favoritesStore"); // reidrata AGORA, com esse localStorage
+  expect(useFavoritesStore.getState().favoriteIds).toEqual([]);
+});
+```
+
+Sem `vi.resetModules()`, o módulo ficaria em cache entre testes (comportamento padrão de `import()`/`require()`), e todos os testes dessa suíte compartilhariam a mesma instância já reidratada do primeiro teste a importar o módulo.
+
+### Verificação manual real (não substituível por teste automatizado)
+
+Fluxo favoritar → navegar → **recarregar de verdade** testado em Chromium real via `mcp__rea__capture_browser_scenario` (ver `progress.md`): clicar na estrela de "Horizonte Azul" em `/catalogo`, ir para `/favoritos`, confirmar que o item aparece, recarregar a página de fato (nova navegação HTTP, não um re-render em memória) e confirmar que o item continua lá — a prova de que a persistência é real (`localStorage` sobrevivendo a um reload do navegador), não só um efeito de estado React mantido em memória durante a sessão de teste automatizado. Zero erros de console.
+
+## Sprint 05 — cobertura real de atalhos de teclado e modo cinema
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `lib/mapKeyToAction.test.ts` | Espaço → `toggle-play`; `m`/`M` → `toggle-mute`; `ArrowUp`/`ArrowDown` → `volume-up`/`volume-down`; `t`/`T` → `toggle-theater`; qualquer outra tecla → `null` | 5 testes |
+| `store/playerUiStore.test.ts` | Começa com `isTheaterMode: false`; `toggleTheaterMode` alterna o estado nos dois sentidos | 2 testes |
+| `components/VideoPlayer.test.tsx` (3 testes novos) | Botão "Modo cinema" alterna `aria-pressed` e o estado compartilhado da store ao clicar; a tecla "T", com o player focado, também alterna o modo cinema; a tecla `ArrowDown`, com o player focado, reduz o valor refletido no slider de volume | 3 testes (total do arquivo: 6) |
+| `app/pages/ChannelDetailPage.test.tsx` (novo arquivo) | Clicar em "Modo cinema" muda o atributo `data-theater-mode` do `<article>` da página de `"false"` para `"true"` — prova de que a composição (`ChannelDetailPage` lendo `useIsTheaterMode()`) funciona de ponta a ponta, não só o botão isolado | 1 teste |
+
+**Total Sprint 05: 11 testes novos** (5 + 2 + 3 + 1). **Total do monorepo após a sprint: 94 testes, 94 passando, 0 falhando.**
+
+### Decisão de teste notável: testar o atalho de teclado via `user.keyboard()` com o elemento focado, não via `fireEvent.keyDown` direto
+
+```typescript
+const player = screen.getByRole("group");
+player.focus();
+await user.keyboard("t");
+expect(usePlayerUiStore.getState().isTheaterMode).toBe(true);
+```
+
+`user.keyboard()` (de `@testing-library/user-event`) despacha a sequência completa de eventos que um teclado real dispara (`keydown`/`keypress`/`keyup`), no elemento que está de fato focado no momento — diferente de `fireEvent.keyDown(elemento, { key: "t" })`, que dispara só o evento `keydown` manualmente no elemento indicado, sem passar pelo mecanismo real de foco do navegador. Como o próprio comportamento sendo testado é "o atalho só funciona com o player focado" (ADR-021), usar `user.keyboard()` depois de `player.focus()` testa exatamente essa dependência — um teste com `fireEvent.keyDown` não provaria que o foco importa, porque dispararia o evento independentemente de qualquer estado de foco real.
+
+### Problema real encontrado por este teste (não hipotético)
+
+O primeiro teste a de fato acionar `play()` (via atalho de espaço) revelou que `video.play().catch(...)` falha em `jsdom` porque `HTMLMediaElement.prototype.play()` devolve `undefined`, não uma `Promise`, nesse ambiente — um caso concreto de "o teste automatizado encontrou um bug que a verificação manual de navegador real (Sprint 03) nunca teria encontrado", porque em um navegador real `play()` sempre devolve uma `Promise`. Ver `progress.md` e `learning.md` para o detalhe completo. Corrigido em `useVideoPlayer.ts` com `Promise.resolve(video.play())`.
+
+### Verificação manual real (não substituível por teste automatizado)
+
+Modo cinema e atalhos de teclado testados em Chromium real via `mcp__rea__capture_browser_scenario` (ver `progress.md`): clique no botão "Modo cinema" alargando visivelmente o player; foco no player + tecla "T" alternando o estado sem erro; foco no player + três `ArrowDown` reduzindo visivelmente a posição do controle deslizante de volume (~70% da trilha, consistente com os 3 decrementos de 10%). Zero erros de console nas três execuções.

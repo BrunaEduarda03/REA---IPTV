@@ -413,3 +413,131 @@ A Fase 03 da engenharia reversa documentou um sistema de recuperação de reprod
 **A lição de engenharia aqui:** reconhecer um padrão sofisticado (pela engenharia reversa) não obriga a implementá-lo — obriga a reconhecer *quando* ele se aplicaria, e documentar essa decisão (em vez de simplesmente não pensar nela). Se o backlog crescer para incluir múltiplas fontes por conteúdo, o padrão já está estudado e documentado, pronto para ser reimplementado (com código original) quando fizer sentido.
 
 **Exercício:** usando a assinatura de `MediaSourceAdapter` já existente, esboce (só em texto/pseudocódigo) como um hook `usePlayerWithFallback(sources: string[])` poderia envolver `useVideoPlayer` para tentar a próxima fonte da lista quando `state.status === "error"` — sem reescrever `useVideoPlayer` por dentro.
+
+---
+
+### 6. O padrão "actions slot": decoupling sem Context, sem evento global
+
+A Sprint 04 trouxe o primeiro caso real de duas features precisando aparecer juntas na tela: um botão de favorito, dentro de um card de catálogo. A tentação óbvia seria `ChannelCard` importar `FavoriteButton` direto — mas isso criaria uma dependência de `catalog` sobre `favorites`, quebrando a regra de que features não se conhecem diretamente.
+
+**O que encontramos:** uma prop `actions?: ReactNode` em `ChannelCard`:
+
+```tsx
+// features/catalog/components/ChannelCard.tsx — não sabe o que é "favoritos"
+interface ChannelCardProps {
+  channel: Channel;
+  actions?: ReactNode;
+}
+function ChannelCard({ channel, actions }: ChannelCardProps) {
+  return (
+    <article>
+      <img src={channel.thumbnail} />
+      {actions /* renderizado sobre a thumbnail, mas o card não sabe o que é */}
+      <h3>{channel.name}</h3>
+    </article>
+  );
+}
+```
+
+```tsx
+// app/pages/CatalogPage.tsx — a ÚNICA camada que conhece as duas features
+<ChannelCard
+  channel={channel}
+  actions={<FavoriteButton channelId={channel.id} channelName={channel.name} />}
+/>
+```
+
+**Como isso difere de outras formas de "conectar" duas features:** uma alternativa comum é um barramento de eventos global (`eventBus.emit("favorite:toggled", id)`) ou colocar tudo num Context compartilhado. Ambos resolvem o problema, mas escondem a dependência — ao ler só `ChannelCard.tsx`, não dá pra saber que ele pode disparar um evento de favoritos. Com o slot de composição, a dependência é **visível e local**: olhando só `CatalogPage.tsx`, você vê exatamente quais duas features estão se encontrando ali, e em nenhum outro lugar.
+
+**Por que isso importa:** esse é o mesmo princípio por trás de "inversão de dependência" (a feature de baixo nível, `catalog`, não depende da de cima, `favorites` — é o contrário: `favorites` é injetado de fora). Não veio de nenhuma leitura do código do Saimo TV — é um padrão de composição React padrão, aplicado aqui porque o próprio `architecture.md` deste projeto já declarava a regra ("features não se importam diretamente") antes mesmo de existir um caso concreto para testá-la.
+
+**Como verificar:** `grep -r "features/favorites" apps/web/src/features/catalog/` não deveria retornar nenhum resultado — e de fato não retorna (confirmado na Sprint 04).
+
+**Exercício:** imagine uma terceira feature, `features/watch-later` (assistir depois), que também precisa de um botão no card. Como o slot `actions` (hoje um único `ReactNode`) precisaria mudar para comportar os dois botões ao mesmo tempo, sem que `catalog` precise saber que agora são duas features, não uma?
+
+---
+
+### 7. `persist` do Zustand: o que ele garante sozinho, e o que você ainda precisa garantir
+
+**O que encontramos:** `favoritesStore` usa o middleware `persist`, que serializa o estado para `localStorage` a cada mudança e o lê de volta ao carregar a página:
+
+```typescript
+export const useFavoritesStore = create<FavoritesState>()(
+  persist(
+    (set) => ({ favoriteIds: [], toggleFavorite: /* ... */ }),
+    {
+      name: "saimotv-lab:favorites",
+      storage: createJSONStorage(() => localStorage),
+      merge: (persisted, current) => ({
+        ...current,
+        favoriteIds: parseFavoriteIds((persisted as { favoriteIds?: unknown } | null)?.favoriteIds),
+      }),
+    },
+  ),
+);
+```
+
+**O que `persist` garante sozinho:** serialização (`JSON.stringify`) ao mudar, leitura (`JSON.parse`) ao iniciar, e um `name` que vira a chave do `localStorage`. Isso resolve "persistir entre recarregamentos" — metade do critério de aceitação do backlog.
+
+**O que `persist` NÃO garante sozinho:** que o dado lido de volta tem o shape esperado. Se alguém editar o `localStorage` manualmente via DevTools, ou se uma versão futura do app mudar o schema de `favoriteIds` (ex.: de `string[]` para `{ id: string, addedAt: Date }[]`) e um usuário ainda tiver o formato antigo salvo, `persist` sozinho aceitaria esse dado sem reclamar — o Zod mora exatamente na opção `merge`, o ponto de extensão que o `persist` expõe para "eu decido o que fazer com o que foi lido antes de aceitar".
+
+**A lição de engenharia, ligada à auditoria de RE:** a Fase 04 encontrou o Saimo TV fazendo `JSON.parse` com `try/catch` defensivo em vários pontos de leitura de estado persistido — evidência de que esse é um problema real, não hipotético, mesmo em uma aplicação madura. Replicamos o *princípio* ("nunca confiar que o dado persistido ainda tem o shape que o código atual espera"), com uma implementação própria baseada em Zod, mais forte que um `try/catch` genérico porque valida o **shape**, não só a sintaxe JSON.
+
+**Como verificar:** rode `favoritesStore.test.ts` e leia o teste "localStorage com shape inesperado" — ele escreve `{ state: { favoriteIds: "ch-01,ch-02" }, version: 0 }` diretamente no `localStorage` (uma string, não um array) e confirma que a store abre com `favoriteIds: []`, não com um erro ou um valor corrompido propagado para a UI.
+
+**Exercício:** remova a opção `merge` customizada do `favoritesStore` (deixe o `persist` usar o merge padrão dele) e rode `favoritesStore.test.ts` de novo. Quais testes passam a falhar, e por quê?
+
+---
+
+### 8. Um teste automatizado encontrou um bug que a verificação visual nunca encontraria
+
+A Sprint 03 "provou" a reprodução de vídeo com uma verificação visual real (Chromium real, clique de verdade no botão "Reproduzir", vídeo de fato tocando na tela). Isso é evidência forte — mas é evidência de **um** ambiente: o navegador real. A Sprint 05 escreveu o primeiro teste automatizado que aciona `play()` (através de um atalho de teclado), e esse teste, rodando sob `jsdom` (não um navegador real), revelou isto:
+
+```typescript
+// useVideoPlayer.ts — código da Sprint 03, nunca quebrou na Sprint 03
+video.play().catch(() => { /* ... */ });
+```
+
+```
+$ bun run test
+# erro: video.play(...).catch is not a function
+```
+
+**Por que isso nunca apareceu antes:** a especificação do DOM garante que `HTMLMediaElement.prototype.play()` devolve uma `Promise` — e todo navegador real cumpre isso. Mas `jsdom` (o ambiente que o Vitest usa para simular um DOM sem abrir um navegador de verdade) tem o método `play()` como "não implementado", e devolve `undefined` em vez de uma `Promise` rejeitada. Como nenhum teste anterior chamava `play()` de verdade (só `fireEvent` em eventos do vídeo, nunca um clique real no botão), esse detalhe nunca foi exercitado — nem pelos testes, nem pela verificação visual (que roda num Chromium real, onde o bug não existe).
+
+**A correção, e por que ela não muda nada em produção:**
+```typescript
+// Promise.resolve(x) devolve x se x já é uma Promise, ou embrulha x numa
+// Promise resolvida se não é — comportamento idêntico num navegador real
+// (onde play() já é uma Promise), só adiciona segurança onde não é.
+Promise.resolve(video.play()).catch(() => { /* ... */ });
+```
+
+**A lição de engenharia:** "verificado num navegador real" e "coberto por teste automatizado" são evidências **diferentes**, que encontram classes diferentes de problema. A verificação visual prova que o fluxo funciona no ambiente que o usuário final realmente usa. O teste automatizado, rodando num ambiente mais simples e mecânico (`jsdom`), força o código a não depender silenciosamente de garantias que só esse ambiente específico cumpre — e isso o torna mais robusto para qualquer ambiente futuro (um novo test runner, SSR, um navegador obscuro). Nenhuma das duas formas de verificação substitui a outra — é por isso que `testing.md` documenta as duas separadamente para cada sprint.
+
+**Como verificar:** rode `bun run test` depois de reverter a correção (volte a `video.play().catch(...)` sem `Promise.resolve`) e observe o teste `"atalho de teclado 'T' ... também alterna o modo cinema"` ou qualquer teste que pressione espaço — eles não acionam `play()` diretamente neste conjunto específico (o espaço não foi testado de propósito, veja o exercício abaixo), então para reproduzir o erro originalmente encontrado, adicione um teste que pressione espaço no player focado.
+
+**Exercício:** escreva um teste em `VideoPlayer.test.tsx` que foca o player e pressiona espaço (`await user.keyboard(" ")`), reverta a correção do `Promise.resolve`, e confirme que esse teste novo é quem detecta a regressão — depois reaplique a correção e confirme que ele passa a passar.
+
+---
+
+### 9. O mesmo "slot de composição" (item 6), aplicado de novo — agora entre player e página
+
+O padrão `actions?: ReactNode` (item 6 acima) resolveu "duas features, um componente". O modo cinema é um problema-irmão: "uma feature (`player`) precisa influenciar o **layout da página que a envolve** (`app/pages/ChannelDetailPage.tsx`), sem que `player` saiba nada sobre `ChannelDetailPage`".
+
+A solução aqui é um pouco diferente — não é uma prop de composição, é um **estado observável**:
+
+```tsx
+// features/player/store/playerUiStore.ts — player expõe o estado, não decide o layout
+export function useIsTheaterMode(): boolean {
+  return usePlayerUiStore((state) => state.isTheaterMode);
+}
+
+// app/pages/ChannelDetailPage.tsx — a página decide o que fazer com esse estado
+const isTheaterMode = useIsTheaterMode();
+<article className={isTheaterMode ? "max-w-5xl" : "max-w-2xl"}>
+```
+
+**Por que não é o mesmo padrão do item 6:** lá, `catalog` não sabia nada sobre `favorites` — a composição acontecia de fora, via prop. Aqui, é o oposto: `player` sabe que `isTheaterMode` existe (é o dono do estado) e o expõe através de um hook público (`useIsTheaterMode`), mas **não decide o que esse estado significa para quem o lê** — `player` nunca teria como saber que `ChannelDetailPage` usa `max-w-2xl`/`max-w-5xl`, isso é decisão exclusiva da página. É o mesmo princípio de "quem possui o estado não é obrigado a possuir todos os efeitos dele" já visto na tabela de favoritos (`favoritesStore` possui `favoriteIds`; `FavoritesPage` decide o que fazer com eles).
+
+**Exercício:** hoje, só `ChannelDetailPage` lê `useIsTheaterMode()`. Se uma segunda página (hipotética, ex.: uma visão "assistir junto" com dois players lado a lado) também precisasse reagir ao modo cinema de forma diferente, o que mudaria — e o que **não** mudaria — em `playerUiStore.ts`?

@@ -126,13 +126,75 @@ $ bun run build       → sucesso; hls.js confirmado em chunk separado (595 KB, 
 
 **Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 04 (estado e preferências — favoritos, persistência local).
 
-## Sprint 04 — Estado e preferências
+## Sprint 04 — Estado e preferências (Favoritos) ✅ Concluída (aguardando aprovação para Sprint 05)
 
-*Ainda não iniciado.*
+**Contexto recuperado antes de começar:** `git status` limpo (Sprint 03 ainda não commitada pelo usuário no momento da autorização, mas sem nenhuma alteração pendente de sprints anteriores), autorizado por instrução direta ("siga para sprint 4"), sem prompt detalhado novo — especificação usada foi a já aprovada em `backlog.md` (item 9, "Favoritos locais").
 
-## Sprint 05 — Experiência avançada
+**Funcionalidades concluídas:**
+- `toggleFavoriteIds` — função pura de domínio (adiciona/remove id sem mutar o array recebido).
+- `parseFavoriteIds` — validação Zod de fronteira (`z.array(z.string())`), cai para `[]` em qualquer shape inesperado.
+- `favoritesStore` — Zustand com `persist` (chave `saimotv-lab:favorites`) e `merge` customizado validado por Zod.
+- `FavoriteButton` — botão de estrela com `aria-pressed`, `preventDefault`/`stopPropagation` (nested em `<Link>`).
+- Slot de composição `actions?: ReactNode` em `ChannelCard`, usado por `CatalogPage` e `ChannelDetailPage` para injetar o `FavoriteButton` sem acoplar `catalog` a `favorites` (ADR-017).
+- `FavoritesPage` (rota `/favoritos`) — cruza `favoriteIds` (estado de cliente) com `useChannels` (estado de servidor, já existente) sem endpoint novo (ADR-019); estados de loading/erro/vazio tratados.
+- Sidebar atualizada com o item "Favoritos".
 
-*Ainda não iniciado — escopo depende de decisão pós-MVP.*
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  12 pass, 0 fail
+apps/api:         14 pass, 0 fail
+apps/web:         57 pass, 0 fail  (24 novos: 4 toggleFavoriteIds + 9 parseFavoriteIds + 5 favoritesStore + 3 FavoriteButton + 3 FavoritesPage)
+```
+Total: **83 testes, 83 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso
+```
+
+**Verificação end-to-end real:** API e frontend reais iniciados (`bun run dev:api`/`dev:web`, confirmados com `curl` retornando `200` em `/api/channels` e em `/favoritos`), fluxo completo executado em Chromium real via `mcp__rea__capture_browser_scenario`: clique no botão de favoritar "Horizonte Azul" em `/catalogo` → navegação para `/favoritos` → item aparece → **recarregamento real de página** (`goto` na mesma URL, não só um re-render em memória) → item continua aparecendo, provando que a persistência é de fato via `localStorage` e não só estado React em memória. Zero erros de console, zero page errors (único console output: mensagens de debug do HMR do Vite e do React DevTools, já observadas em sprints anteriores).
+
+**Problemas encontrados e resolvidos:**
+- Nenhum problema novo de build/tooling nesta sprint — os quatro padrões recorrentes de sprints anteriores (alias do Vitest, `noUncheckedIndexedAccess`, opacidade do Tailwind em cores customizadas) já estavam resolvidos/conhecidos e não reapareceram em código novo.
+
+**Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 05 (experiência avançada). *(Nota: o usuário autorizou Sprint 04 e 05 juntas em "siga para sprint 4" + confirmação de prosseguir para a 5 — ver seção abaixo.)*
+
+## Sprint 05 — Experiência avançada (Atalhos de teclado + Modo cinema) ✅ Concluída (aguardando aprovação para Sprint 06)
+
+**Contexto recuperado antes de começar:** `git status` com as mudanças da Sprint 04 ainda não commitadas (esperado — o usuário commita manualmente após cada relatório de entrega); autorizado por instrução direta do usuário ("sprint 4 e 5 faça"), cobrindo as duas sprints em uma única autorização. Diferente das sprints anteriores, o escopo exato do Sprint 05 **não estava pré-definido em `backlog.md`** (que lista 6 itens "Opcionais" e exige decisão explícita antes de começar) — a escolha de quais itens implementar (atalhos de teclado + modo cinema) foi feita nesta sessão e registrada em ADR-020, com justificativa de por que os outros 4 itens (Picture-in-Picture, espelhamento de tela, D-pad, EPG sintético, layout TV) ficam para uma sprint futura.
+
+**Funcionalidades concluídas:**
+- `mapKeyToAction` — função pura de domínio (tecla → intenção: `toggle-play`, `toggle-mute`, `volume-up`, `volume-down`, `toggle-theater`).
+- `playerUiStore` — Zustand simples (não persistido) com `isTheaterMode`.
+- Atalhos de teclado no player: Espaço (play/pause), ↑/↓ (volume ±10%), M (mudo), T (modo cinema) — escopados ao contêiner do player via `tabIndex`/`onKeyDown` (ADR-021), não globais.
+- Botão "Modo cinema" em `PlayerControls`, com `aria-pressed`.
+- `ChannelDetailPage` alarga seu próprio contêiner (`max-w-2xl` → `max-w-5xl`) quando o modo cinema está ativo.
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  12 pass, 0 fail
+apps/api:         14 pass, 0 fail
+apps/web:         68 pass, 0 fail  (9 novos: 5 mapKeyToAction + 2 playerUiStore + 3 VideoPlayer novos [modo cinema via clique, modo cinema via tecla T, volume via ArrowDown] + 1 ChannelDetailPage novo)
+```
+Total: **94 testes, 94 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso
+```
+
+**Verificação end-to-end real:** API e frontend reais iniciados, página `/catalogo/ch-01` aberta em Chromium real via `mcp__rea__capture_browser_scenario`, em três execuções separadas: (1) clique no botão "Modo cinema" → screenshot confirmando o player visivelmente mais largo; (2) foco no player + tecla "T" → `isTheaterMode` alternado sem erro de console; (3) foco no player + três `ArrowDown` → screenshot confirmando o slider de volume visivelmente reduzido (~70%, consistente com 1.0 − 3×0.1). **Zero erros de console e zero page errors nas três execuções** (único output de console: mensagens de debug do HMR do Vite e do React DevTools, já observadas em sprints anteriores).
+
+**Problemas encontrados e resolvidos:**
+1. `video.play().catch(...)` em `useVideoPlayer.ts` (código da Sprint 03, nunca exercitado por um teste até agora) quebra em ambientes onde `HTMLMediaElement.prototype.play()` não devolve uma `Promise` — confirmado isoladamente que `jsdom@25` devolve `undefined`. Descoberto ao escrever o primeiro teste que aciona `play()` de fato (via atalho de teclado). Corrigido envolvendo as duas tentativas de reprodução em `Promise.resolve(...)` — mesmo comportamento em produção (onde a spec garante uma `Promise`), robusto também em teste.
+2. `@typescript-eslint/no-unused-expressions` rejeitou um ternário usado como statement (`condição ? pause() : play();`) no handler de teclado — corrigido com `if/else` explícito.
+3. O tipo de `locator.role` da ferramenta de captura de navegador (`mcp__rea__capture_browser_scenario`) não inclui `"group"` entre os papéis aceitos para localizar elementos — contornado adicionando `data-testid="video-player-shortcuts"` ao contêiner do player (também útil como ponto de extensão estável para automação futura).
+
+**Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 06 (qualidade e entrega).
 
 ## Sprint 06 — Qualidade e entrega
 

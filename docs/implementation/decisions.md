@@ -154,6 +154,54 @@ Estas substituem as decisões em aberto do planejamento inicial (abaixo, mantida
 
 ---
 
+## ADR-017 — `actions?: ReactNode` como slot de composição em `ChannelCard` (Sprint 04)
+
+- **Decisão:** `ChannelCard` (feature `catalog`) ganha uma prop opcional `actions?: ReactNode`, renderizada sobre a thumbnail; `catalog` não importa `features/favorites` em nenhum arquivo.
+- **Contexto:** a Sprint 04 precisava que um botão de favorito aparecesse dentro do card do catálogo — a primeira vez que duas features precisam compartilhar um elemento visual.
+- **Alternativas:** (1) `catalog` importar `FavoriteButton` diretamente — mais rápido de escrever, mas viola o princípio já declarado em `architecture.md` ("features não se importam diretamente") e tornaria `catalog` inutilizável sem `favorites` no futuro; (2) mover o botão de favorito para fora do card, como uma camada separada posicionada por CSS — mais complexo de alinhar visualmente sem ganho real; (3) um "render prop" (`renderActions?: (channel) => ReactNode`) — mais flexível, mas `ReactNode` já é suficiente para o caso de uso atual (nenhuma necessidade de o card passar dados de volta para a função).
+- **Justificativa:** a composição acontece em `app/pages/*` — a única camada que já tem permissão, pela arquitetura declarada, de conhecer múltiplas features ao mesmo tempo. `ChannelCard` continua testável e reutilizável sem favoritos (ex.: num contexto futuro sem essa feature).
+- **Consequências:** qualquer feature futura que precise adicionar uma ação ao card (ex.: "adicionar à lista de assistir depois") reusa o mesmo slot, sem precisar de uma nova prop dedicada.
+
+## ADR-018 — Zustand `persist` + `merge` customizado com Zod, em vez de sincronização manual (Sprint 04)
+
+- **Decisão:** `favoritesStore` usa o middleware `persist` do próprio Zustand (`storage: createJSONStorage(() => localStorage)`), com uma função `merge` customizada que passa o dado lido por `parseFavoriteIds` (Zod) antes de aceitá-lo.
+- **Contexto:** o backlog (item 9) exige persistência entre recarregamentos **e** que `localStorage` corrompido não quebre a aplicação. `persist` sozinho resolve a primeira exigência mas não a segunda — ele faz `JSON.parse` do valor salvo e aceita o resultado como estado novo sem validar o shape.
+- **Alternativas:** (1) não usar `persist`, escrever um `useEffect` próprio que lê/escreve `localStorage` manualmente — rejeitado porque reimplementaria, pior, uma peça que o próprio Zustand já resolve para esse problema específico; (2) usar `persist` sem `merge` customizado, confiando que o dado salvo está sempre no formato esperado — rejeitado porque é exatamente a premissa que a auditoria de engenharia reversa (Fase 04) mostrou ser arriscada (dado de versão antiga do schema, ou corrompido).
+- **Justificativa:** `merge` é o ponto de extensão que o próprio `persist` expõe para este problema — usá-lo é "biblioteca resolvendo o problema", não "reinventar a roda", e ainda assim fecha a lacuna de validação com uma função de 3 linhas que já tínhamos motivo para escrever (ADR da auditoria sobre `JSON.parse` defensivo).
+- **Consequências:** 5 testes dedicados (`favoritesStore.test.ts`) cobrem especificamente JSON inválido e shape inesperado, usando `vi.resetModules()` + `import()` dinâmico para testar o comportamento de inicialização do módulo singleton sob diferentes estados pré-existentes de `localStorage`.
+
+## ADR-019 — Reaproveitar `useChannels` para `/favoritos`, sem endpoint novo (Sprint 04)
+
+- **Decisão:** `FavoritesPage` chama `useChannels({ page: 1, pageSize: 50, sort: "name_asc" })` (já existente, da Sprint 02) e filtra o resultado em memória pelos ids em `favoriteIds`.
+- **Contexto:** era preciso resolver ids de favoritos para dados completos de canal (nome, thumbnail, descrição) para renderizar `/favoritos`.
+- **Alternativas:** (1) um endpoint novo `GET /api/channels?ids=...` que aceita uma lista de ids — mais "correto" em escala, mas o catálogo fictício tem só 20 itens, então uma única página de `pageSize: 50` já cobre o catálogo inteiro sem paginação adicional; criar o endpoint agora seria complexidade sem problema real a resolver (viola o princípio "evite abstrações desnecessárias"); (2) duplicar os dados do canal dentro do próprio `favoritesStore` ao favoritar (salvar o objeto `Channel` inteiro, não só o id) — rejeitado porque duplicaria estado de servidor dentro de um estado de cliente, a mesma armadilha que `architecture.md` já evita explicitamente na tabela de decisões de estado do catálogo.
+- **Justificativa:** o limite exato dessa decisão está documentado aqui para ser revisitado: se o catálogo crescer além de uma página razoável (ex.: centenas de itens), a filtragem client-side deixa de ser eficiente e o endpoint dedicado (alternativa 1) passa a se justificar.
+- **Consequências:** `FavoritesPage` depende indiretamente do tamanho do catálogo caber em uma página — risco registrado, não ignorado.
+
+## ADR-020 — Escopo do Sprint 05: atalhos de teclado + modo cinema, entre os itens "Opcional" do backlog
+
+- **Decisão:** dos seis itens listados como "Opcional (candidatos ao Sprint 05)" em `backlog.md` (Picture-in-Picture, Theater Mode, espelhamento de tela, atalhos de teclado, navegação por D-pad/controle remoto, EPG sintético, layout dedicado para TV), esta sprint implementa **atalhos de teclado** e **modo cinema** (Theater Mode).
+- **Contexto:** o próprio backlog exige uma decisão explícita antes de iniciar o Sprint 05 ("não iniciado sem decisão explícita sobre quais itens 'Opcionais' entram"). A autorização do usuário para esta sessão ("sprint 4 e 5 faça") não especificou quais itens — a escolha do escopo ficou a cargo da sessão, e é registrada aqui com a justificativa.
+- **Por que estes dois, e não os outros quatro:**
+  - **Picture-in-Picture** — depende da Document Picture-in-Picture API (ou do modo legado `requestPictureInPicture`), de suporte desigual entre navegadores e difícil de verificar de ponta a ponta em Chromium headless (a janela PiP é uma superfície do sistema operacional, fora do DOM capturável por `mcp__rea__capture_browser_scenario`). Ficaria sem a mesma verificação visual real já aplicada a toda funcionalidade deste laboratório.
+  - **Espelhamento de tela** — já é **deliberadamente excluído** em `backlog.md` ("Múltiplos protocolos de cast" está em "Evolução futura", fora do escopo de qualquer sprint atual), não apenas adiado.
+  - **Navegação por D-pad/controle remoto** — exigiria um sistema de gerenciamento de foco abrangendo toda a aplicação (catálogo, favoritos, player), não só o player — escopo de uma sprint dedicada, não um item entre outros.
+  - **EPG sintético** — exigiria um novo domínio de dados (programação por horário) no backend, incluindo schema, fixtures e endpoints novos — maior que um ajuste de UI do player.
+  - **Layout dedicado para TV** — é uma mudança transversal de design responsivo (breakpoints, navegação por controle remoto implícita), não uma funcionalidade isolada testável em uma sessão.
+  - **Atalhos de teclado e modo cinema**, em contraste, são extensões diretas do player já existente (Sprint 03): reaproveitam 100% das ações já expostas por `useVideoPlayer` (`play`/`pause`/`toggleMute`/`setVolume`), não exigem nenhum domínio de dados novo, e são inteiramente verificáveis com as mesmas duas camadas de teste já usadas em todo o projeto (unitário + `mcp__rea__capture_browser_scenario`).
+- **Justificativa:** escopo proporcional ao tempo de uma sessão, sem abrir uma funcionalidade pela metade (regra explícita da Fase 05: "nenhuma implementação pela metade").
+- **Consequências:** os quatro itens não escolhidos permanecem registrados em `backlog.md` como candidatos a uma sprint futura, agora com a razão explícita de terem sido adiados (não só "não deu tempo").
+
+## ADR-021 — Atalhos de teclado escopados ao contêiner do player (não ao `document` inteiro)
+
+- **Decisão:** o `onKeyDown` dos atalhos (`mapKeyToAction`) fica anexado a um `<div tabIndex={0}>` que envolve o `<video>`, não a um listener global em `document`/`window`.
+- **Contexto:** um listener global é a forma mais comum (e mais arriscada) de implementar atalhos de player — captura teclas em qualquer lugar da página, inclusive dentro de campos de busca ou formulários futuros.
+- **Alternativas:** `document.addEventListener("keydown", ...)` dentro de um `useEffect` no `VideoPlayer` — mais simples de escrever (não exige o usuário clicar no player antes), mas interceptaria "M" ou espaço mesmo com o foco em um campo de texto em outra parte da tela (ex.: a busca do catálogo, se a página algum dia combinar player e busca na mesma view).
+- **Justificativa:** escopar ao contêiner via `tabIndex` + `onKeyDown` é o padrão de acessibilidade recomendado para "regiões interativas" (`role="group"` com rótulo descritivo dos atalhos disponíveis) — o usuário precisa focar o player (clique ou Tab) antes dos atalhos valerem, o mesmo comportamento esperado de players de vídeo profissionais (YouTube, por exemplo, só reage a espaço/setas com o player em foco ou sem nenhum outro campo focado).
+- **Consequências:** o atributo `aria-label` do contêiner documenta os atalhos disponíveis para tecnologia assistiva; um teste (`VideoPlayer.test.tsx`) prova que focar o contêiner e pressionar uma tecla de fato aciona a ação — não bastaria disparar o evento em `document` diretamente, porque é exatamente esse acoplamento ao elemento focado que está sendo verificado.
+
+---
+
 ## Decisões do planejamento inicial (histórico — algumas substituídas acima)
 
 1. ~~Localização do código~~ → substituída por ADR-007.
