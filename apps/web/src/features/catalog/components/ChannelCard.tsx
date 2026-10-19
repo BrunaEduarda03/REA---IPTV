@@ -39,7 +39,7 @@ export function ChannelCard({ channel, viewMode = "grid", actions }: ChannelCard
         }`}
       >
         <img
-          src={channel.thumbnail}
+          src={channel.tmdb?.backdropUrl ?? channel.thumbnail}
           alt=""
           loading="lazy"
           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"

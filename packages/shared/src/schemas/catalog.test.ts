@@ -46,6 +46,31 @@ describe("channelSchema", () => {
     const result = channelSchema.safeParse({ ...valid, isFeatured: "sim" });
     expect(result.success).toBe(false);
   });
+
+  test("aceita um canal sem campo tmdb (a maioria, fictícia)", () => {
+    expect(channelSchema.safeParse(valid).success).toBe(true);
+  });
+
+  test("aceita tmdb: null (buscado, mas não encontrado / API indisponível)", () => {
+    expect(channelSchema.safeParse({ ...valid, tmdb: null }).success).toBe(true);
+  });
+
+  test("aceita metadados reais do TMDB quando presentes", () => {
+    const result = channelSchema.safeParse({
+      ...valid,
+      tmdb: {
+        tmdbId: 10378,
+        title: "Big Buck Bunny",
+        overview: "Um coelho gigante e gentil é provocado por três roedores valentões.",
+        backdropUrl: "https://image.tmdb.org/t/p/w780/abc.jpg",
+        posterUrl: "https://image.tmdb.org/t/p/w342/abc.jpg",
+        releaseYear: 2008,
+        genres: ["Animação", "Aventura"],
+        rating: 7.8,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("channelListQuerySchema", () => {

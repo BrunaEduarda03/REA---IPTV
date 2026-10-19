@@ -1,5 +1,6 @@
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { useChannels } from "@/features/catalog/hooks/useChannels";
 import { ChannelCard } from "@/features/catalog/components/ChannelCard";
 import { CatalogSkeleton } from "@/features/catalog/components/CatalogSkeleton";
@@ -25,10 +26,7 @@ export function FavoritesPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <header>
-        <h1 className="text-xl font-bold text-text-primary">Favoritos</h1>
-        <p className="text-sm text-text-secondary">Conteúdos que você marcou com a estrela no catálogo.</p>
-      </header>
+      <PageHeader title="Favoritos" description="Conteúdos que você marcou com a estrela no catálogo." />
 
       {channelsQuery.isPending && <CatalogSkeleton />}
 

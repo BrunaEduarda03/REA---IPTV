@@ -17,6 +17,36 @@ export type Category = z.infer<typeof categorySchema>;
 export const channelStatusSchema = z.enum(["available", "coming_soon", "unavailable"]);
 export type ChannelStatus = z.infer<typeof channelStatusSchema>;
 
+/**
+ * Metadados reais, obtidos ao vivo da API do TMDB (nunca copiados/salvos de
+ * forma permanente) para os poucos conteúdos do catálogo que correspondem a
+ * um filme real licenciado sob Creative Commons (ver
+ * `apps/api/src/modules/catalog/catalog.fixtures.ts`, `tmdbQueryByChannelId`,
+ * e docs/implementation/decisions.md, ADR-024). A maioria dos conteúdos do
+ * catálogo é fictícia e nunca tem este campo preenchido.
+ */
+export const tmdbMetadataSchema = z.object({
+  tmdbId: z.number().int().positive(),
+  title: z.string(),
+  overview: z.string(),
+  /** Imagem de fundo (paisagem, ~16:9) — usada em cards no estilo 16:9
+   * (catálogo de canais, que nunca mudou de proporção nesta sprint). */
+  backdropUrl: z.string().url().nullable(),
+  /** Pôster (retrato, ~2:3) — usado pelo `MoviePosterCard` de `/filmes`
+   * desde a Sprint 02.5 (ver ADR-027). Montado a partir de `poster_path`
+   * + a base oficial de imagens do TMDB, igual `backdropUrl`. */
+  posterUrl: z.string().url().nullable(),
+  releaseYear: z.number().int().nullable(),
+  /** Nomes reais dos gêneros (ex. "Animação", "Ficção científica"), já
+   * traduzidos para pt-BR pelo próprio TMDB — nunca um enum nosso. */
+  genres: z.array(z.string()),
+  /** Nota média do TMDB (0-10), quando positiva — `null` quando o título
+   * ainda não tem avaliações suficientes (o próprio TMDB devolve 0 nesse
+   * caso, o que exibiríamos erroneamente como "nota zero"). */
+  rating: z.number().min(0).max(10).nullable(),
+});
+export type TmdbMetadata = z.infer<typeof tmdbMetadataSchema>;
+
 export const channelSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -25,6 +55,15 @@ export const channelSchema = z.object({
   thumbnail: z.string(),
   isFeatured: z.boolean(),
   status: channelStatusSchema,
+  /**
+   * `undefined`/ausente = canal fictício, nunca tenta buscar no TMDB.
+   * `null` = o backend tentou (este canal está marcado para enriquecimento)
+   * mas não encontrou resultado, ou a API do TMDB está indisponível, ou
+   * nenhuma chave está configurada — a aplicação nunca quebra por isso,
+   * só exibe os dados fictícios de fallback (`name`/`description`/`thumbnail`).
+   * objeto preenchido = encontrado com sucesso.
+   */
+  tmdb: tmdbMetadataSchema.nullable().optional(),
 });
 export type Channel = z.infer<typeof channelSchema>;
 

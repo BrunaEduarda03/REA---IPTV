@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { channelListQuerySchema } from "@saimotv/shared";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { useCategories } from "@/features/catalog/hooks/useCategories";
 import { useChannels } from "@/features/catalog/hooks/useChannels";
 import { useCatalogUiStore } from "@/features/catalog/store/catalogUiStore";
@@ -59,15 +60,11 @@ export function CatalogPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-text-primary">Catálogo</h1>
-          <p className="text-sm text-text-secondary">
-            Conteúdos de demonstração — dados fictícios criados para este laboratório.
-          </p>
-        </div>
-        <ViewToggle />
-      </header>
+      <PageHeader
+        title="Catálogo"
+        description="Conteúdos de demonstração — dados fictícios criados para este laboratório."
+        actions={<ViewToggle />}
+      />
 
       <SearchInput value={query.search ?? ""} onChange={(value) => patchParams({ search: value })} />
 

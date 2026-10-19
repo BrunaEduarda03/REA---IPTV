@@ -39,4 +39,29 @@ describe("ChannelCard", () => {
     renderCard(mockFeaturedChannel);
     expect(screen.getByRole("link")).toHaveAttribute("href", "/catalogo/ch-01");
   });
+
+  test("usa a imagem de fundo do TMDB quando presente, em vez da thumbnail genérica", () => {
+    const withTmdb: Channel = {
+      ...mockFeaturedChannel,
+      tmdb: {
+        tmdbId: 10378,
+        title: "Big Buck Bunny",
+        overview: "...",
+        backdropUrl: "https://image.tmdb.org/t/p/w780/real.jpg",
+        posterUrl: "https://image.tmdb.org/t/p/w342/real.jpg",
+        releaseYear: 2008,
+        genres: ["Animação", "Aventura"],
+        rating: 7.8,
+      },
+    };
+    // `alt=""` (imagem decorativa) remove o card do acessibility tree sob o
+    // role "img" — por isso a busca é por seletor CSS, não por role/alt-text.
+    const { container } = renderCard(withTmdb);
+    expect(container.querySelector("img")).toHaveAttribute("src", "https://image.tmdb.org/t/p/w780/real.jpg");
+  });
+
+  test("sem tmdb, usa a thumbnail genérica do canal (comportamento original)", () => {
+    const { container } = renderCard(mockFeaturedChannel);
+    expect(container.querySelector("img")).toHaveAttribute("src", mockFeaturedChannel.thumbnail);
+  });
 });

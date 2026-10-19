@@ -1,8 +1,10 @@
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
-import { PageShell } from "@/components/layout/PageShell";
+import { AppShell } from "@/components/layout/AppShell";
 import { HomePage } from "@/app/pages/HomePage";
 import { CatalogPage } from "@/app/pages/CatalogPage";
 import { ChannelDetailPage } from "@/app/pages/ChannelDetailPage";
+import { MoviesPage } from "@/app/pages/MoviesPage";
+import { MovieDetailPage } from "@/app/pages/MovieDetailPage";
 import { FavoritesPage } from "@/app/pages/FavoritesPage";
 import { NotFoundPage } from "@/app/pages/NotFoundPage";
 
@@ -10,41 +12,57 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: (
-      <PageShell>
+      <AppShell>
         <HomePage />
-      </PageShell>
+      </AppShell>
     ),
   },
   {
     path: "/catalogo",
     element: (
-      <PageShell>
+      <AppShell>
         <CatalogPage />
-      </PageShell>
+      </AppShell>
     ),
   },
   {
     path: "/catalogo/:id",
     element: (
-      <PageShell>
+      <AppShell>
         <ChannelDetailPage />
-      </PageShell>
+      </AppShell>
+    ),
+  },
+  {
+    path: "/filmes",
+    element: (
+      <AppShell>
+        <MoviesPage />
+      </AppShell>
+    ),
+  },
+  {
+    path: "/filmes/:id",
+    element: (
+      <AppShell>
+        <MovieDetailPage />
+      </AppShell>
     ),
   },
   {
     path: "/favoritos",
     element: (
-      <PageShell>
+      <AppShell>
         <FavoritesPage />
-      </PageShell>
+      </AppShell>
     ),
   },
   {
     path: "*",
     element: (
-      <PageShell>
+      <AppShell>
         <NotFoundPage />
-      </PageShell>
+      </AppShell>
     ),
   },
 ]);

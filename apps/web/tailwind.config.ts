@@ -47,9 +47,20 @@ export default {
       },
       borderRadius: {
         token: "var(--radius-base)",
+        xl2: "var(--radius-lg)",
       },
       spacing: {
         "gutter": "var(--space-gutter)",
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        elevated: "var(--shadow-elevated)",
+      },
+      transitionTimingFunction: {
+        standard: "var(--ease-standard)",
+      },
+      transitionDuration: {
+        base: "var(--duration-base)",
       },
     },
   },

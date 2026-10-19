@@ -5,6 +5,7 @@ import { requestLogger } from "./middleware/logger";
 import { errorHandler } from "./middleware/errorHandler";
 import { healthRoutes } from "./modules/health/health.routes";
 import { catalogRoutes } from "./modules/catalog/catalog.routes";
+import { moviesRoutes } from "./modules/movies/movies.routes";
 
 /**
  * Monta o app Hono sem iniciar o servidor — separado de `index.ts` de
@@ -25,6 +26,7 @@ export function createApp() {
 
   app.route("/api", healthRoutes);
   app.route("/api", catalogRoutes);
+  app.route("/api", moviesRoutes);
 
   app.onError(errorHandler);
 

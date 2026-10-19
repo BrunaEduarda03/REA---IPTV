@@ -122,3 +122,67 @@ O primeiro teste a de fato acionar `play()` (via atalho de espaço) revelou que 
 ### Verificação manual real (não substituível por teste automatizado)
 
 Modo cinema e atalhos de teclado testados em Chromium real via `mcp__rea__capture_browser_scenario` (ver `progress.md`): clique no botão "Modo cinema" alargando visivelmente o player; foco no player + tecla "T" alternando o estado sem erro; foco no player + três `ArrowDown` reduzindo visivelmente a posição do controle deslizante de volume (~70% da trilha, consistente com os 3 decrementos de 10%). Zero erros de console nas três execuções.
+
+## Correção pós-Sprint 05 — cobertura real da home e da mídia por categoria
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `app/pages/HomePage.test.tsx` | Mostra título e links para `/catalogo` e `/favoritos`; carrega e exibe os destaques reais do catálogo (mesma API de `/catalogo`) | 2 testes |
+| `features/player/lib/demoStream.test.ts` | Categorias diferentes devolvem streams diferentes; a mesma categoria é sempre determinística; categoria desconhecida cai para a stream padrão (nunca `undefined`) | 3 testes |
+
+**Total: 5 testes novos. Total do monorepo: 99 testes, 99 passando, 0 falhando.**
+
+## Integração TMDB — cobertura real
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `lib/tmdb/tmdbClient.test.ts` (backend) | Sem chave → `null`, zero chamadas de rede; resultado encontrado → campos normalizados (incluindo `backdrop_path` → URL completa); sem resultado → `null`; resposta não-OK → `null`; erro de rede → `null`; `backdrop_path` ausente → `null` sem quebrar os outros campos; cache evita 2ª chamada de rede para a mesma busca | 7 testes |
+| `catalog.test.ts` (backend, bloco "Enriquecimento com TMDB") | Canal marcado (ch-01) tem `tmdb` presente mesmo sem chave (cai para `null`); canal fictício nunca tem o campo `tmdb` na resposta; a listagem enriquece cada item igual ao endpoint de detalhe | 3 testes — **nunca fazem chamada de rede real**: `TMDB_API_KEY` é explicitamente vazia em `apps/api/.env.test` |
+| `catalog.test.ts` (shared) | Aceita canal sem `tmdb`; aceita `tmdb: null`; aceita metadados reais preenchidos | 3 testes |
+| `ChannelCard.test.tsx` | Usa `tmdb.backdropUrl` quando presente; cai para `thumbnail` quando ausente (comportamento original preservado) | 2 testes |
+| `ChannelDetailPage.test.tsx` | Mostra sinopse real + atribuição quando `tmdb` presente; mostra descrição fictícia sem atribuição quando ausente; `overview` vazio (caso real encontrado em produção) cai para a descrição fictícia mas mantém a atribuição (ADR-025) | 3 testes |
+
+**Total: 18 testes novos. Total do monorepo: 117 testes, 117 passando, 0 falhando.**
+
+### Por que `catalog.test.ts` nunca faz uma chamada de rede real ao TMDB
+
+Diferente de `tmdbClient.test.ts` (que mocka `fetch` diretamente, testando o cliente isoladamente), os testes de integração do catálogo (`app.request()`, exercitando a rota completa) dependem de `env.TMDB_API_KEY` estar vazia — garantido por `apps/api/.env.test`, carregado automaticamente pelo Bun quando `NODE_ENV=test`. Isso é verificado hoje porque nenhuma chave real existe nesse arquivo; é uma garantia que vale a pena reconferir se o processo de configuração de ambiente mudar no futuro (ver ADR-024, "Limitação conhecida").
+
+## `/filmes` — cobertura real
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `movies.test.ts` (shared) | `movieSchema` aceita filme válido e nulos onde esperado, rejeita `streamUrl` inválida e `genres` que não é array; `movieListQuerySchema` aplica padrão, aceita filtro+ordenação, rejeita sort inválido | 7 testes |
+| `movies.test.ts` (backend) | Lista só os filmes resolvidos com sucesso; ordena por recência e por A-Z; filtra por gênero real (incluindo gênero sem resultado → lista vazia, não erro); lista só os gêneros que aparecem no acervo atual; detalhe de um filme existente; 404 para filme não-resolvido e para id inexistente | 9 testes — `tmdbClient` mockado via `mock.module` (dados determinísticos, não depende de `.env.test`) |
+| `MovieCard.test.tsx`, `GenreFilter.test.tsx`, `SortControl.test.tsx` | Renderização, fallback de imagem ausente, navegação, interação de filtro/ordenação | 9 testes |
+| `MoviesPage.test.tsx`, `MovieDetailPage.test.tsx` | Listagem, filtro por gênero reduzindo a grade, estado vazio, detalhe com sinopse/atribuição reais, stream próprio do filme (via `createAdapter` mockado, não leitura de `video.src`) | 7 testes |
+| `VideoPlayer.test.tsx` (1 teste novo) | `isRealContent=true` mostra o aviso correto, nunca "não é o conteúdo real" | 1 teste |
+
+**Total: 33 testes novos. Total do monorepo: 151 testes, 151 passando, 0 falhando.**
+
+### Por que `movies.test.ts` (backend) mocka `tmdbClient` via `mock.module`, diferente de `catalog.test.ts`
+
+`catalog.test.ts` confia em `TMDB_API_KEY` vazia (`.env.test`) para nunca fazer chamada real — suficiente lá porque só precisa provar "com/sem enriquecimento" (`null` vs. ausente). `movies.test.ts` precisa de MAIS que isso: precisa verificar ordenação por ano e filtro por gênero sobre dados REAIS variados — impossível de testar de forma determinística se toda busca sempre devolve `null`. `mock.module("../../lib/tmdb/tmdbClient", () => ({...}))`, chamado antes de um `await import("../../app")` dinâmico (não um import estático no topo do arquivo), garante que o mock é aplicado antes do grafo de módulos do app carregar a versão real — confirmado, rodando a suíte completa repetidamente, que o mock fica isolado a este arquivo (não corrompe `catalog.test.ts`, que roda com o `tmdbClient` real).
+
+### Verificação manual real, com a chave de API real do usuário (não simulada)
+
+`curl` direto à API confirmou `tmdbId`/`backdropUrl`/`releaseYear` reais para os 2 canais marcados. Em navegador real (`mcp__rea__capture_browser_scenario`): grade do catálogo mostrando fotos reais de "Big Buck Bunny"/"Tears of Steel" ao lado dos ícones genéricos dos 18 canais fictícios; detalhe de "Tears of Steel" com pôster, ano e sinopse reais em português. Essa verificação foi o que revelou o caso real do `overview` vazio corrigido pela ADR-025 — um exemplo de bug encontrado por testar com dados reais, não um mock, que nenhum teste automatizado (que usa dados inventados) teria revelado sozinho.
+
+### Verificação manual real — a mais próxima de "prova de conteúdo", não só de mecânica
+
+Diferente de toda verificação anterior do player (que sempre confirmava a MECÂNICA — troca de motor, controles, atalhos — com a mesma mídia de fundo), esta foi a primeira verificação a confirmar **conteúdo diferente entre navegações**, via captura de **rede real** (não só screenshot): abrir um canal de "Documentários" e depois um de "Ficção & Séries" no mesmo `mcp__rea__capture_browser_scenario`, com `capture.events` incluindo `"network"`. O resultado mostrou dois conjuntos de requisições completamente distintos — `x36xhzz/url_0/193039199_mp4_h264_aac_hd_7.ts` (HLS tradicional, segmentos `.ts`) para Documentários, e `tos_ismc/tos_1080p/init.mp4` + `1.m4s` (HLS com fMP4, um formato de segmentação diferente) para Ficção & Séries — todos HTTP 206, zero page errors. Essa é uma evidência mais forte do que um screenshot: prova que o **navegador de fato baixou bytes diferentes**, não só que a tela mostrou algo visualmente diferente.
+
+## Sprint 02.5 (Visual) — cobertura real
+
+| Arquivo de teste | O que cobre | Resultado real |
+|---|---|---|
+| `AppShell.test.tsx` (substitui `PageShell.test.tsx`) | Duas navegações (desktop+mobile) coexistem no DOM com o mesmo rótulo acessível; link "Início" presente nas duas; nenhuma `role="complementary"` (sidebar) sobrevive | 3 testes |
+| `MoviePosterCard.test.tsx` (substitui `MovieCard.test.tsx`) | Título+metadados; usa `posterUrl` (não `backdropUrl`); mostra nota real quando presente; placeholder sem pôster/nota; link correto | 5 testes |
+| `MoviesPage.test.tsx` (+2 testes novos) | Com ≤4 filmes, o trilho "Em destaque" NÃO aparece duplicado sobre a grade; com >4, aparece com os mais recentes | 2 testes |
+| `tmdbClient.test.ts` (atualizado) | Normalização de `poster_path`→`posterUrl` e `vote_average`→`rating` (incluindo `vote_average: 0` → `null`, não "nota zero") | cobertura estendida nos testes já existentes |
+
+**Total: 99 testes no `apps/web` (era 95; +9 novos, -5 removidos com `MovieCard`/`PageShell`). Total do monorepo: 155 testes, 155 passando, 0 falhando.**
+
+### Por que esta sprint não tem testes automatizados de "regressão visual" (screenshot-diff)
+
+Diferente da cobertura funcional (sempre testada com Vitest/bun:test), a comparação visual desta sprint foi feita manualmente: capturar referência e local no mesmo viewport via `mcp__rea__capture_browser_scenario`, comparar como humano/IA, corrigir, recapturar — documentado passo a passo em `visual-regression.md`. Automatizar isso (rodar a cada CI, falhar se o layout mudar sem intenção) é um candidato de trabalho futuro, não decidido nesta sprint (ver "Problemas conhecidos" em `visual-regression.md`).

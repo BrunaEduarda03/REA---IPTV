@@ -38,9 +38,11 @@ export const catalogRoutes = new Hono()
         return c.json(invalidParamsResponse(result.error.issues), 400);
       }
     }),
-    (c) => {
+    async (c) => {
       const query = c.req.valid("query");
-      return c.json(catalogService.listChannels(query));
+      const result = catalogService.listChannels(query);
+      const items = await catalogService.enrichChannelsWithTmdb(result.items);
+      return c.json({ ...result, items });
     },
   )
 
@@ -51,7 +53,7 @@ export const catalogRoutes = new Hono()
         return c.json(invalidParamsResponse(result.error.issues), 400);
       }
     }),
-    (c) => {
+    async (c) => {
       const { id } = c.req.valid("param");
       const channel = catalogService.getChannelById(id);
 
@@ -61,6 +63,7 @@ export const catalogRoutes = new Hono()
         throw new HTTPException(404, { message: `Conteúdo "${id}" não encontrado` });
       }
 
-      return c.json(channel);
+      const enriched = await catalogService.enrichChannel(channel);
+      return c.json(enriched);
     },
   );

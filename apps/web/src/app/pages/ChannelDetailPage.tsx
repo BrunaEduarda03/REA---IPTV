@@ -4,7 +4,7 @@ import { useChannel } from "@/features/catalog/hooks/useChannel";
 import { useCategories } from "@/features/catalog/hooks/useCategories";
 import { channelStatusLabel } from "@/features/catalog/lib/statusLabels";
 import { VideoPlayer } from "@/features/player/components/VideoPlayer";
-import { DEMO_STREAM_URL } from "@/features/player/lib/demoStream";
+import { getDemoStreamUrl } from "@/features/player/lib/demoStream";
 import { useIsTheaterMode } from "@/features/player/store/playerUiStore";
 import { FavoriteButton } from "@/features/favorites/components/FavoriteButton";
 
@@ -51,13 +51,13 @@ export function ChannelDetailPage() {
         <>
           {channelQuery.data.status === "available" ? (
             <VideoPlayer
-              src={DEMO_STREAM_URL}
-              poster={channelQuery.data.thumbnail}
+              src={getDemoStreamUrl(channelQuery.data.categoryId)}
+              poster={channelQuery.data.tmdb?.backdropUrl ?? channelQuery.data.thumbnail}
               title={channelQuery.data.name}
             />
           ) : (
             <img
-              src={channelQuery.data.thumbnail}
+              src={channelQuery.data.tmdb?.backdropUrl ?? channelQuery.data.thumbnail}
               alt=""
               className="aspect-video w-full rounded-token object-cover"
             />
@@ -70,14 +70,34 @@ export function ChannelDetailPage() {
                   Destaque
                 </span>
               )}
+              {channelQuery.data.tmdb?.releaseYear && (
+                <span className="text-xs font-medium text-text-muted">{channelQuery.data.tmdb.releaseYear}</span>
+              )}
               <FavoriteButton channelId={channelQuery.data.id} channelName={channelQuery.data.name} />
             </div>
             {category && <p className="text-sm text-text-muted">{category.name}</p>}
           </div>
-          <p className="text-text-secondary">{channelQuery.data.description}</p>
+          {/* `||`, não `??`: o TMDB às vezes devolve `overview: ""` para um
+              idioma sem tradução comunitária completa — uma sinopse vazia
+              não deveria "vencer" a descrição fictícia de fallback. */}
+          <p className="text-text-secondary">{channelQuery.data.tmdb?.overview || channelQuery.data.description}</p>
           <p className="text-xs font-medium text-text-muted">
             Status: {channelStatusLabel[channelQuery.data.status]}
           </p>
+          {channelQuery.data.tmdb && (
+            <p className="text-[10px] text-text-muted">
+              Dados de{" "}
+              <a
+                href="https://www.themoviedb.org/"
+                target="_blank"
+                rel="noreferrer"
+                className="underline hover:text-text-secondary"
+              >
+                TMDB
+              </a>{" "}
+              — este produto usa a API do TMDB, mas não é endossado ou certificado pelo TMDB.
+            </p>
+          )}
         </>
       )}
     </article>

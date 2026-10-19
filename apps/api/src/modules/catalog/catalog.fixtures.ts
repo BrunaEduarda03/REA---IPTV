@@ -60,8 +60,9 @@ const channelSeeds: ChannelSeed[] = [
   // Documentários
   {
     id: "ch-01",
-    name: "Horizonte Azul",
-    description: "Expedições e vida selvagem ao redor do mundo, em produções originais sobre biodiversidade.",
+    name: "Big Buck Bunny",
+    description:
+      "Curta de animação sobre um coelho gigante e gentil que revida contra três roedores valentões — produção aberta (Creative Commons) da Blender Foundation, a mesma mídia reproduzida de verdade pelo player desta categoria. Pôster, sinopse e ano reais via TMDB quando configurado (ver ADR-024).",
     categoryId: "cat-01",
     isFeatured: true,
   },
@@ -171,8 +172,9 @@ const channelSeeds: ChannelSeed[] = [
   // Ficção & Séries
   {
     id: "ch-17",
-    name: "Estação Nova",
-    description: "Drama original sobre reencontros em uma pequena cidade litorânea.",
+    name: "Tears of Steel",
+    description:
+      "Curta de ficção científica sobre um grupo de guerreiros e cientistas enfrentando robôs numa Amsterdã futurista — produção aberta (Creative Commons) da Blender Foundation, a mesma mídia reproduzida de verdade pelo player desta categoria. Pôster, sinopse e ano reais via TMDB quando configurado (ver ADR-024).",
     categoryId: "cat-05",
     isFeatured: true,
   },
@@ -205,3 +207,16 @@ export const channelFixtures: Channel[] = channelSeeds.map((seed) => ({
   isFeatured: seed.isFeatured ?? false,
   status: seed.status ?? "available",
 }));
+
+/**
+ * Marca quais canais correspondem a um filme real, licenciado sob Creative
+ * Commons, que o player desta categoria de fato reproduz (ver
+ * `features/player/lib/demoStream.ts` no frontend) — e por qual nome/ano
+ * buscá-lo no TMDB para enriquecer a resposta com pôster/sinopse/ano reais
+ * (ver ADR-024). Os 18 canais restantes nunca aparecem aqui de propósito:
+ * são fictícios, e nunca devem disparar uma busca no TMDB.
+ */
+export const tmdbQueryByChannelId: Record<string, { title: string; year: number }> = {
+  "ch-01": { title: "Big Buck Bunny", year: 2008 },
+  "ch-17": { title: "Tears of Steel", year: 2012 },
+};

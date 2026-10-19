@@ -1,6 +1,9 @@
 import type { Category, Channel, ChannelListQuery, ChannelListResponse } from "@saimotv/shared";
 import { normalize } from "../../lib/normalize";
+import { env } from "../../lib/env";
+import { searchMovie } from "../../lib/tmdb/tmdbClient";
 import { catalogRepository } from "./catalog.repository";
+import { tmdbQueryByChannelId } from "./catalog.fixtures";
 
 /**
  * Regras de negócio do catálogo: filtrar, ordenar e paginar. O service NUNCA
@@ -35,9 +38,35 @@ function sortChannels(channels: Channel[], sort: ChannelListQuery["sort"]): Chan
   }
 }
 
+/**
+ * Enriquece UM canal com metadados reais do TMDB, se (e só se) ele estiver
+ * marcado em `tmdbQueryByChannelId`. Nunca lança: `searchMovie` já absorve
+ * qualquer falha (chave ausente, rede, API fora do ar) e devolve `null`
+ * nesses casos — o canal fictício de fallback (`name`/`description`
+ * já presentes) continua funcionando normalmente.
+ */
+async function enrichOne(channel: Channel): Promise<Channel> {
+  const query = tmdbQueryByChannelId[channel.id];
+  if (!query) return channel;
+
+  const tmdb = await searchMovie(env.TMDB_API_KEY, query.title, query.year);
+  return { ...channel, tmdb };
+}
+
 export const catalogService = {
   listCategories(): Category[] {
     return catalogRepository.findAllCategories().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  },
+
+  /** Aplicado só sobre os itens já paginados (nunca o catálogo inteiro) —
+   * menos chamadas ao TMDB, e cada uma é cacheada por processo de qualquer
+   * forma (ver `tmdbClient.ts`). */
+  async enrichChannelsWithTmdb(channels: Channel[]): Promise<Channel[]> {
+    return Promise.all(channels.map(enrichOne));
+  },
+
+  async enrichChannel(channel: Channel): Promise<Channel> {
+    return enrichOne(channel);
   },
 
   listChannels(query: ChannelListQuery): ChannelListResponse {

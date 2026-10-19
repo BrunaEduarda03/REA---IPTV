@@ -12,6 +12,9 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  /** Opcional de propósito (ver ADR-024): sem ela, o enriquecimento de
+   * catálogo com dados reais do TMDB é ignorado, nunca derruba a API. */
+  TMDB_API_KEY: z.string().optional(),
 });
 
 function loadEnv() {

@@ -47,3 +47,69 @@ describe("ChannelDetailPage — modo cinema (Sprint 05)", () => {
     expect(article).toHaveAttribute("data-theater-mode", "true");
   });
 });
+
+describe("ChannelDetailPage — metadados reais do TMDB (correção pós-Sprint 05)", () => {
+  test("quando o canal tem dados do TMDB, mostra a sinopse real e a atribuição obrigatória", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockCatalogFetch({
+        onChannels: () => ({ items: mockCategories, page: 1, pageSize: 12, total: 0, totalPages: 1 }),
+        channelOverride: {
+          ...mockFeaturedChannel,
+          tmdb: {
+            tmdbId: 10378,
+            title: "Big Buck Bunny",
+            overview: "Sinopse real vinda do TMDB, não a descrição fictícia do fixture.",
+            backdropUrl: "https://image.tmdb.org/t/p/w780/real.jpg",
+            posterUrl: "https://image.tmdb.org/t/p/w342/real.jpg",
+            releaseYear: 2008,
+            genres: ["Animação", "Aventura"],
+            rating: 7.8,
+          },
+        },
+      }),
+    );
+
+    renderDetailPage();
+
+    await waitFor(() => expect(screen.getByText(/sinopse real vinda do tmdb/i)).toBeInTheDocument());
+    expect(screen.getByText("2008")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /tmdb/i })).toHaveAttribute("href", "https://www.themoviedb.org/");
+  });
+
+  test("sem dados do TMDB (canal fictício), mostra a descrição do fixture e nenhuma atribuição", async () => {
+    renderDetailPage();
+
+    await waitFor(() => expect(screen.getByText(mockFeaturedChannel.description)).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: /tmdb/i })).not.toBeInTheDocument();
+  });
+
+  test("TMDB presente mas sem sinopse traduzida (overview vazio): cai para a descrição do fixture, mas mantém a atribuição", async () => {
+    // Caso real encontrado em verificação manual: o TMDB às vezes devolve
+    // `overview: ""` para um idioma sem tradução comunitária completa.
+    vi.stubGlobal(
+      "fetch",
+      mockCatalogFetch({
+        onChannels: () => ({ items: mockCategories, page: 1, pageSize: 12, total: 0, totalPages: 1 }),
+        channelOverride: {
+          ...mockFeaturedChannel,
+          tmdb: {
+            tmdbId: 10378,
+            title: "Big Buck Bunny",
+            overview: "",
+            backdropUrl: "https://image.tmdb.org/t/p/w780/real.jpg",
+            posterUrl: "https://image.tmdb.org/t/p/w342/real.jpg",
+            releaseYear: 2008,
+            genres: ["Animação", "Aventura"],
+            rating: 7.8,
+          },
+        },
+      }),
+    );
+
+    renderDetailPage();
+
+    await waitFor(() => expect(screen.getByText(mockFeaturedChannel.description)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: /tmdb/i })).toBeInTheDocument();
+  });
+});

@@ -56,10 +56,10 @@ describe("GET /api/channels", () => {
   });
 
   test("busca por texto, ignorando acentuação e caixa", async () => {
-    const { status, body } = await get("/api/channels?search=HORIZONTE");
+    const { status, body } = await get("/api/channels?search=RAIZES");
     expect(status).toBe(200);
     expect(body.total).toBe(1);
-    expect(body.items[0].id).toBe("ch-01");
+    expect(body.items[0].id).toBe("ch-02");
   });
 
   test("busca também encontra por trecho da descrição", async () => {
@@ -112,5 +112,32 @@ describe("GET /api/channels/:id", () => {
     const { status, body } = await get("/api/channels/nao-existe");
     expect(status).toBe(404);
     expect(body.error).toContain("não encontrado");
+  });
+});
+
+describe("Enriquecimento com TMDB (ver ADR-024)", () => {
+  // TMDB_API_KEY é explicitamente vazia em .env.test (ver apps/api/.env.test)
+  // — estes testes nunca fazem uma chamada de rede real, por design.
+
+  test("canal marcado para TMDB (ch-01) tem o campo tmdb presente, mesmo sem chave configurada (cai para null, nunca quebra)", async () => {
+    const { status, body } = await get("/api/channels/ch-01");
+    expect(status).toBe(200);
+    expect(body.name).toBe("Big Buck Bunny");
+    expect(body.tmdb).toBeNull();
+  });
+
+  test("canal fictício (nunca marcado para TMDB) não tem o campo tmdb na resposta", async () => {
+    const { status, body } = await get("/api/channels/ch-02");
+    expect(status).toBe(200);
+    expect("tmdb" in body).toBe(false);
+  });
+
+  test("a listagem também enriquece (ou não) cada item, mesmo comportamento do endpoint de detalhe", async () => {
+    const { body } = await get("/api/channels?pageSize=50");
+    const bigBuckBunny = body.items.find((c: { id: string }) => c.id === "ch-01");
+    const raizes = body.items.find((c: { id: string }) => c.id === "ch-02");
+
+    expect(bigBuckBunny.tmdb).toBeNull();
+    expect("tmdb" in raizes).toBe(false);
   });
 });

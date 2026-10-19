@@ -20,6 +20,13 @@ describe("VideoPlayer", () => {
     expect(screen.getByText(/mídia de demonstração/i)).toBeInTheDocument();
   });
 
+  test("isRealContent=true mostra o aviso de conteúdo real (nunca 'não é o conteúdo real')", () => {
+    render(<VideoPlayer src="src-a" title="Sintel" isRealContent />);
+
+    expect(screen.getByText(/curta-metragem real, licenciado sob creative commons/i)).toBeInTheDocument();
+    expect(screen.queryByText(/não é o conteúdo real/i)).not.toBeInTheDocument();
+  });
+
   test("mostra o indicador de carregamento antes do motor terminar de anexar", () => {
     render(<VideoPlayer src="src-a" title="Horizonte Azul" />);
     expect(screen.getByRole("status")).toHaveTextContent(/carregando vídeo/i);

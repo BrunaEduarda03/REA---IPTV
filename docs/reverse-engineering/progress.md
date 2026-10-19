@@ -1,10 +1,14 @@
 # Progress — Estado do Laboratório
 
-**Última atualização:** 2026-10-19
+**Última atualização:** 2026-10-18
 
 ## Etapa atual
 
-Etapa 0, Etapa 1, Fases 01 a 04, verificação cruzada com o código-fonte, e **auditoria técnica final** concluídas. **Fase 05 ainda não iniciada** (aguardando autorização explícita do usuário) — por enquanto, aguardando apenas a autorização de quais arquivos entram no próximo commit.
+Etapa 0, Etapa 1, Fases 01 a 04, verificação cruzada com o código-fonte, e **auditoria técnica final** concluídas. **Fase 05 (reimplementação educacional independente) autorizada e em andamento** — escopo e stack aprovados pelo usuário; acompanhamento sprint a sprint em `docs/implementation/` (não neste arquivo, que documenta só o laboratório de *engenharia reversa* em si, não a implementação própria).
+
+**Status da Fase 05** (detalhe completo em `docs/implementation/progress.md`): Sprints 01 (Fundação), 02 (Catálogo), 03 (Player), 04 (Favoritos) e 05 (Atalhos de teclado + Modo cinema) concluídas e verificadas (testes reais + verificação visual em navegador real via `mcp__rea__capture_browser_scenario`, nenhum teste/verificação presumidos). Falta a Sprint 06 (qualidade e entrega: CI local, auditoria de acessibilidade, verificação de responsividade em viewport real, documentação do build de produção) para fechar o plano de sprints aprovado. Nenhum commit foi feito até agora nesta fase — por instrução explícita do usuário, cada sprint só é commitada depois que ele revisa o relatório de entrega.
+
+**Importante (não um "gap", uma fronteira de escopo deliberada):** mesmo depois da Sprint 06, a aplicação própria **não** terá paridade de funcionalidades com o Saimo TV real — isso nunca foi o objetivo (ver `AGENTS.md`, item 1: "o objetivo é aprender, não construir um produto concorrente"). Ficam deliberadamente fora (documentado em `auditoria-tecnica-final.md`, Seção 5, e em `docs/implementation/backlog.md`): catálogo/conteúdo real (IPTV, filmes, séries — dependem de direitos de distribuição que não temos), EPG real (dependeria de fonte licenciada), metadados de VOD via TMDB, eventos esportivos, legendas via OpenSubtitles, DRM, PWA/Service Worker, app desktop via Tauri, motor de player com 3 engines + watchdog + fallback multi-fonte (implementamos 2 engines, sem fallback — ADR-016), navegação por D-pad/controle remoto, EPG sintético, layout dedicado para TV, Picture-in-Picture e espelhamento de tela (estes 5 últimos candidatos a uma sprint futura opcional, ver ADR-020 em `docs/implementation/decisions.md`).
 
 ## Tarefas concluídas
 
@@ -31,7 +35,8 @@ Etapa 0, Etapa 1, Fases 01 a 04, verificação cruzada com o código-fonte, e **
 
 ## Pendências
 
-- [ ] Decisão do usuário sobre o escopo próprio da Fase 05 (explicitamente **não** uma recriação do Saimo TV — ver plano proposto, não executado, na Seção 6 de `auditoria-tecnica-final.md`, a ser substituído por um escopo definido pelo usuário).
+- [x] ~~Decisão do usuário sobre o escopo próprio da Fase 05~~ → decidido: Bun Workspaces + React/Vite/TS + Hono, ver `docs/implementation/architecture.md` e `backlog.md`.
+- [ ] Sprint 06 (qualidade e entrega) da Fase 05, ver `docs/implementation/backlog.md`.
 
 ## Bloqueios
 
@@ -39,4 +44,4 @@ Nenhum bloqueio registrado até o momento.
 
 ## Próxima ação
 
-Laboratório de engenharia reversa (Fases 01-04 + verificação cruzada + auditoria final) encerrado nesta sessão com commit da documentação. Aguardar o usuário definir um **escopo próprio** para a Fase 05 — não uma recriação do Saimo TV.
+Laboratório de engenharia reversa (Fases 01-04 + verificação cruzada + auditoria final) permanece encerrado e intocado desde seu commit original. A Fase 05 (implementação própria) está em `docs/implementation/`, com Sprints 01-05 concluídas e aguardando autorização do usuário para a Sprint 06 (última do plano) ou para ajuste de escopo.

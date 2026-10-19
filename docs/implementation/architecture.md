@@ -379,6 +379,98 @@ Usado dentro do `merge` do `persist` — se o `localStorage` tiver JSON inválid
 
 ---
 
+## Integração TMDB — metadados reais para os 2 conteúdos que já são filmes reais (correção pós-Sprint 05)
+
+### Por que isso existe
+
+O catálogo é majoritariamente fictício (18 de 20 canais) — mas os 2 canais que já reproduzem um filme real licenciado (ver "Mídia de demonstração variando por categoria" acima) agora também EXIBEM dados reais sobre esse filme (pôster real, sinopse real, ano real), em vez de nomes/descrições inventados. Ver ADR-024 para a decisão completa e por que isso não abre uma exceção para conteúdo real de TV/filmes/séries protegidos (continua fora de escopo, permanentemente).
+
+### Camadas
+
+| Camada | Arquivo | Responsabilidade |
+|---|---|---|
+| Contrato | `packages/shared/src/schemas/catalog.ts` | `tmdbMetadataSchema` + `Channel.tmdb?: TmdbMetadata \| null` — ausente = fictício, `null` = tentou e não achou/sem chave, objeto = real |
+| Cliente externo | `apps/api/src/lib/tmdb/tmdbClient.ts` | `searchMovie(apiKey, title, year)` — a ÚNICA função que fala com a API do TMDB; nunca lança, cacheia por processo |
+| Mapeamento | `apps/api/src/modules/catalog/catalog.fixtures.ts` (`tmdbQueryByChannelId`) | Marca EXPLICITAMENTE quais 2 canais (de 20) devem ser enriquecidos, e por qual nome/ano buscar |
+| Orquestração | `apps/api/src/modules/catalog/catalog.service.ts` (`enrichChannel`/`enrichChannelsWithTmdb`) | Decide SE um canal precisa de enriquecimento (consultando o mapa acima) e aplica, sem acoplar `tmdbClient` a `catalog.routes` diretamente |
+| Composição | `apps/api/src/modules/catalog/catalog.routes.ts` | Único lugar que decide QUANDO enriquecer (depois de paginar, nunca o catálogo inteiro) |
+| Apresentação | `ChannelCard.tsx`, `ChannelDetailPage.tsx` | Preferem `channel.tmdb?.backdropUrl`/`overview` quando presentes, com fallback para os dados fictícios — nunca uma tela quebrada se o campo estiver ausente |
+
+### Por que a chave de API nunca toca o frontend
+
+`TMDB_API_KEY` só existe em `apps/api/.env` (nunca commitado) e só é lida por `catalog.service.ts` no backend. O frontend nunca faz uma chamada direta ao TMDB — sempre recebe o campo `tmdb` já resolvido dentro da resposta de `/api/channels`/`/api/channels/:id`, a mesma API que já consome para tudo o mais. Enviar a chave ao navegador (ex.: numa variável `VITE_*`) a exporia no bundle JavaScript público — por isso a integração é 100% server-side.
+
+### Degradação graciosa (o padrão se repete, de propósito)
+
+Igual ao padrão já estabelecido para `localStorage` corrompido (favoritos, ADR-018): **nenhuma** falha do TMDB (chave ausente, rede fora do ar, sem resultado) derruba a API ou quebra a tela — `tmdb` vira `null`, e a interface usa os dados fictícios de fallback que já existiam desde antes dessa integração. A aplicação é estritamente **aditiva** em relação à configuração do TMDB: funciona igual sem ela, só não mostra o extra com ela ausente.
+
+---
+
+## Módulo `/filmes` — conteúdo 100% real, módulo próprio (ver ADR-026)
+
+### Por que não é só "mais itens no catálogo"
+
+`catalog` (canais) e `movies` (filmes) são dois domínios deliberadamente separados, não uma única lista com uma flag "é real?":
+
+| | `features/catalog` (canais) | `features/movies` (filmes) |
+|---|---|---|
+| Conteúdo sem dados do TMDB | Continua existindo, com nome/descrição fictícios de fallback | **Não existe** — removido da lista (`moviesService` filtra `null`) |
+| Fonte de vídeo | Compartilhada por categoria (`getDemoStreamUrl`) | Uma por filme (`movie.streamUrl`) |
+| Navegação | Categoria fictícia + busca por texto | Gênero REAL (derivado do TMDB) + ordenação por recência |
+| Paginação | Sim (20 itens, cresce) | Não — acervo pequeno, curado item a item (ADR-026) |
+
+### Camadas (backend)
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `modules/movies/movies.fixtures.ts` | A ÚNICA lista de filmes reais desta aplicação — cada entrada é um curta Creative Commons verificável, com sua fonte de vídeo e a busca exata (nome/ano) a fazer no TMDB |
+| `modules/movies/movies.service.ts` | Resolve cada seed via `tmdbClient.searchMovie`; filtra os que não resolveram; filtra por gênero e ordena |
+| `modules/movies/movies.routes.ts` | `GET /api/movies` (lista + filtro/ordenação), `GET /api/movies/genres`, `GET /api/movies/:id` |
+| `lib/tmdb/tmdbClient.ts` (compartilhado com `catalog`) | Ganhou `getGenreMap` (gêneros reais) e fallback de sinopse em inglês quando pt-BR vem vazio |
+
+### Camadas (frontend)
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `features/movies/services/moviesApi.ts` | Mesmo padrão de `catalogApi.ts`: cada resposta validada pelo MESMO schema Zod do backend (ADR-009) |
+| `features/movies/hooks/{useMovies,useMovieGenres,useMovie}.ts` | TanStack Query — mesmos princípios de cache já usados em `catalog` |
+| `features/movies/components/{MovieCard,GenreFilter,SortControl}.tsx` | Componentes próprios (não reaproveitam `ChannelCard`/`CategoryFilter` — `Movie` não tem `status`/`isFeatured`/categoria fictícia) |
+| `app/pages/MoviesPage.tsx` | Gênero e ordenação na URL (`useSearchParams`), mesmo princípio de `CatalogPage.tsx` — reproduzível por link |
+| `app/pages/MovieDetailPage.tsx` | Reproduz `movie.streamUrl` diretamente — a primeira vez que um conteúdo desta aplicação tem sua PRÓPRIA fonte de vídeo, não uma compartilhada por categoria |
+
+### Diagrama de fluxo
+
+```
+GET /filmes?genre=Fantasia&sort=recent
+        │
+        ▼
+MoviesPage (lê query da URL)
+        │
+        ▼
+useMovies(query) ──► GET /api/movies?genre=Fantasia&sort=recent
+        │                      │
+        │                      ▼
+        │              moviesService.listMovies(query)
+        │                      │
+        │          ┌───────────┴───────────┐
+        │          ▼                       ▼
+        │   movies.fixtures.ts     tmdbClient.searchMovie()
+        │   (4 seeds: nome+ano+     (busca real no TMDB,
+        │    URL de vídeo)           cacheada por processo)
+        │          │                       │
+        │          └───────────┬───────────┘
+        │                      ▼
+        │         filme resolvido (com tmdb real)
+        │         ou null (sem dados → removido)
+        │                      │
+        │                      ▼
+        │         filtra por gênero, ordena, devolve
+        ▼
+MovieCard × N (pôster real, título real, ano real, gêneros reais)
+```
+
+---
+
 ## Módulo de Experiência Avançada do Player — Atalhos de Teclado e Modo Cinema (Sprint 05)
 
 ### Escopo escolhido entre os itens "Opcional" do backlog

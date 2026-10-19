@@ -541,3 +541,67 @@ const isTheaterMode = useIsTheaterMode();
 **Por que não é o mesmo padrão do item 6:** lá, `catalog` não sabia nada sobre `favorites` — a composição acontecia de fora, via prop. Aqui, é o oposto: `player` sabe que `isTheaterMode` existe (é o dono do estado) e o expõe através de um hook público (`useIsTheaterMode`), mas **não decide o que esse estado significa para quem o lê** — `player` nunca teria como saber que `ChannelDetailPage` usa `max-w-2xl`/`max-w-5xl`, isso é decisão exclusiva da página. É o mesmo princípio de "quem possui o estado não é obrigado a possuir todos os efeitos dele" já visto na tabela de favoritos (`favoritesStore` possui `favoriteIds`; `FavoritesPage` decide o que fazer com eles).
 
 **Exercício:** hoje, só `ChannelDetailPage` lê `useIsTheaterMode()`. Se uma segunda página (hipotética, ex.: uma visão "assistir junto" com dois players lado a lado) também precisasse reagir ao modo cinema de forma diferente, o que mudaria — e o que **não** mudaria — em `playerUiStore.ts`?
+
+---
+
+### 10. "Funcionou na Sprint 01" não significa "continua correto na Sprint 05"
+
+`HomePage.tsx` foi escrita na Sprint 01, quando era literalmente verdade dizer "o catálogo, a busca e o player chegam na Sprint 02 em diante" — não havia nada mais para mostrar ainda. O texto nunca foi revisado de novo. Quatro sprints depois, a frase virou uma mentira (tudo isso já existia havia muito tempo), e a home continuava parecendo uma página de "em construção" — foi exatamente isso que levou o usuário a reportar que a aplicação "estava vazia" ao abri-la localmente.
+
+**A causa raiz não era um bug de lógica** (o backend nunca esteve vazio — 5 categorias e 20 canais sempre estiveram lá, confirmável com um `curl`) — era uma **página esquecida fora do escopo de toda sprint seguinte**. Nenhuma sprint listava "atualizar a HomePage" como tarefa, porque cada sprint focava na sua própria feature nova (catálogo, player, favoritos...), e ninguém tinha "revisar o que já existe" como item explícito.
+
+**A lição de engenharia:** texto estático que descreve o "estado atual" do sistema (uma home, um changelog, um texto de ajuda) é um tipo de dado que **envelhece silenciosamente** — ao contrário de um teste que falha quando o código muda, nada aqui avisa automaticamente que ficou desatualizado. A correção escolhida (`ADR-023`) ataca isso de duas formas: (1) o texto descritivo foi reescrito para refletir o estado real hoje, e (2) a seção "Em destaque" busca dados **reais** da API (`useChannels`), não uma lista estática — então, mesmo que ninguém lembre de atualizar o texto na Sprint 07, pelo menos os cards de destaque nunca ficarão desatualizados, porque são dados, não prosa.
+
+**Como verificar:** compare `git show <commit-da-sprint-01>:apps/web/src/app/pages/HomePage.tsx` (texto estático, sem nenhuma chamada de API) com a versão atual (busca `useChannels`) — a diferença estrutural é exatamente "conteúdo escrito à mão" vs. "conteúdo derivado do sistema real".
+
+**Exercício:** existe algum outro texto nesta aplicação que descreve um estado que pode ter mudado desde que foi escrito (ex.: contagens, descrições de "o que está disponível", nomes de sprint)? Procure por strings literais em componentes de `app/pages/` e `components/` que mencionem um número, uma sprint, ou uma lista de funcionalidades — são candidatos ao mesmo problema.
+
+---
+
+### 11. "Dados reais" não é tudo-ou-nada: onde exatamente a fronteira ética fica
+
+Quando o pedido foi "não quero mais tudo mocado, quero entender como obter canais e filmes/séries reais", a resposta não foi "sim" nem "não" — foi "depende de qual parte". Vale registrar o raciocínio, porque é mais sutil do que parece:
+
+- **Metadados de um filme que JÁ reproduzimos legalmente** (pôster, sinopse, ano de "Big Buck Bunny", que já é Creative Commons e já está no player) → **sim**, buscar isso na API pública do TMDB é legítimo. Não estamos adicionando nenhum conteúdo novo que não tínhamos o direito de usar — só enriquecendo a APRESENTAÇÃO de algo que já era nosso para mostrar.
+- **Conteúdo que não temos o direito de distribuir** (canais de TV ao vivo reais, filmes/séries protegidos por direitos autorais que o próprio Saimo TV não documenta ter licenciado) → **não**, independente de quão fácil seria tecnicamente buscar isso (a própria auditoria de RE já documentou exatamente como o Saimo TV faz isso). Facilidade técnica e legitimidade são perguntas completamente diferentes.
+
+**A lição de engenharia:** "integrar com uma API de terceiros" não é uma decisão binária de "pode" ou "não pode" — a mesma técnica (buscar dados numa API pública) pode ser inteiramente legítima para um uso (metadados de algo que já temos o direito de exibir) e inteiramente ilegítima para outro (obter acesso a conteúdo que não temos). O código de `tmdbClient.ts` não sabe a diferença — quem precisa saber é quem decide ONDE ele é chamado (`tmdbQueryByChannelId` tem só 2 entradas, de propósito, nunca "todos os 20 canais").
+
+**Como verificar:** `grep -c . apps/api/src/modules/catalog/catalog.fixtures.ts` dentro do objeto `tmdbQueryByChannelId` — deveria mostrar sempre um número bem menor que o total de canais do catálogo. Se esse número um dia crescer para bater com o total, vale perguntar por quê: ou o catálogo passou a ter mais conteúdo real licenciado (ótimo, motivo legítimo), ou alguém começou a buscar por nomes fictícios esperando "acertar" por coincidência (motivo para reverter).
+
+**Exercício:** se o catálogo ganhasse um terceiro filme real licenciado (ex.: "Sintel", também da Blender Foundation) amanhã, quais arquivos exatos precisariam mudar? (Dica: a resposta deveria ser bem curta — é exatamente o que a camada de "mapeamento" em `architecture.md` foi desenhada para isolar.)
+
+*(Nota: esse exercício foi respondido na prática pouco depois — "Sintel" e "Elephants Dream" foram de fato adicionados, ver item 12 abaixo. Vale comparar sua resposta ao exercício com o diff real.)*
+
+---
+
+### 12. Dois modelos de domínio para "a mesma ideia" — quando NÃO reaproveitar
+
+`/filmes` poderia ter sido "mais uns itens no catálogo" — em vez disso, virou um módulo (`features/movies`) inteiramente separado de `features/catalog`, com seu próprio schema (`Movie`, não `Channel`), seus próprios componentes (`MovieCard`, não `ChannelCard` reaproveitado), sua própria rota de API (`/api/movies`, não mais parâmetros em `/api/channels`).
+
+**Por que não reaproveitar**, mesmo os dois sendo "conteúdo com pôster, título e um player"? A resposta mora numa pergunta simples: **o que acontece quando os dados reais não existem?**
+
+- Em `catalog`: um canal sem dados do TMDB continua sendo um canal válido — tem nome, descrição e thumbnail fictícios, sempre funcionou assim desde a Sprint 02. `tmdb` é um extra opcional.
+- Em `movies`: um filme sem dados do TMDB **não é um filme** — a própria ideia da seção é "isto aqui é 100% real". `moviesService.resolveMovie` devolve `null`, e esse item simplesmente desaparece da lista.
+
+Se os dois modelos fossem um só (`Channel` com um campo `isMovie: boolean` ou parecido), toda leitura de `channel.tmdb` precisaria perguntar "este é um canal de catálogo (onde `null` é normal) ou um filme de `/filmes` (onde a ausência deveria filtrar o item fora)?" — uma pergunta que o TIPO não consegue responder sozinho, só a lógica de quem está lendo. Dois tipos distintos (`Channel.tmdb?: TmdbMetadata | null` vs. `Movie` que só existe quando os dados são reais) tornam essa pergunta desnecessária: o tipo já diz o que o dado significa.
+
+**A lição de engenharia, generalizável:** "dois recursos parecem a mesma coisa" não é o critério certo para decidir se reaproveita um modelo — o critério é "os dois têm as MESMAS invariantes" (regras que sempre valem). `catalog` e `movies` parecem a mesma coisa (card com imagem + título + player), mas têm invariantes diferentes sobre o que significa "dado ausente". Forçar um modelo único teria exigido um campo opcional cujo significado muda dependendo de QUEM pergunta — um cheiro de design (code smell) clássico.
+
+**Como verificar:** `grep -rn "isMovie\|movieId" apps/api/src/modules/catalog/` não deveria retornar nada — `catalog` nunca precisou saber que `movies` existe, e vice-versa (cada um só depende de `tmdbClient.ts`, a peça genuinamente compartilhada entre os dois).
+
+**Exercício:** `features/catalog` e `features/movies` compartilham `tmdbClient.searchMovie`. O que torna ESSA peça segura de compartilhar, quando o resto não foi? (Dica: compare o que `searchMovie` faz — busca e normaliza um dado externo — com o que `catalog.service.ts`/`movies.service.ts` fazem com o resultado — decidir o que esse dado SIGNIFICA para cada domínio.)
+
+---
+
+### 13. Comparação visual real encontra bugs que nenhum teste automatizado encontraria
+
+A Sprint 02.5 trocou a navegação de sidebar para horizontal/abas, usando o breakpoint `md` (768px) do Tailwind — uma escolha razoável, testada com `bun run typecheck`/`lint`/`test`, tudo verde. Só ao capturar `/filmes` local em 768×1024 e colocar **lado a lado** com a mesma captura da referência no mesmo viewport é que dois problemas ficaram óbvios: a navegação horizontal ainda aparecia (a referência já tinha trocado para abas) e a logo quebrava em duas linhas.
+
+**Por que nenhum teste pegaria isso:** `AppShell.test.tsx` prova que as DUAS navegações existem no DOM e têm os links certos — isso é verdade independente de QUAL das duas está visualmente visível em cada largura (CSS, não JS, decide isso via `lg:flex`/`lg:hidden`). `jsdom` (o ambiente dos testes) não tem layout real — não renderiza media queries de forma que um teste consiga perguntar "nessa largura, o que o usuário veria?". Só uma captura de navegador real, num viewport real, responde essa pergunta.
+
+**A lição, generalizável:** testes automatizados provam **comportamento/lógica** (o link existe, aponta pro lugar certo, o estado muda ao clicar). Decisões puramente visuais que dependem de CSS responsivo — "qual breakpoint é o certo", "isso quebra linha nessa largura" — só uma captura visual real, comparada a uma referência (ou a um critério visual explícito), consegue validar. É por isso que esta sprint tratou a comparação de screenshots como uma ferramenta de verificação tão séria quanto os testes — não um "extra bonito", mas a única forma de pegar essa classe específica de problema.
+
+**Como verificar:** rode `bun run test` com o breakpoint revertido para `md` — tudo continua passando. Só uma captura em 768px (real ou manual, abrindo o navegador) revela o problema.
+
+**Exercício:** `AppShell.test.tsx` não testa (e não poderia testar facilmente) QUAL navegação está visível em qual largura. Esboce, em texto, que tipo de ferramenta SERIA capaz de testar isso automaticamente (dica: existe uma categoria de ferramenta de teste que roda num navegador real, não no `jsdom` — qual, e por que ela resolveria especificamente este problema?).

@@ -29,11 +29,49 @@
   --color-success: #3ecf8e;
 
   --radius-base: 0.75rem;
+  --radius-lg: 1.25rem;
   --space-gutter: 1.5rem;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.45), 0 24px 48px -16px rgba(0, 0, 0, 0.6);
+
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-base: 200ms;
 }
 
 body {
   @apply bg-surface-base text-text-primary antialiased;
+}
+
+/*
+ * Fundo "cinematográfico" original (Sprint 02.5): camadas de gradiente
+ * radial sobre a base escura já existente — nenhuma imagem, nenhum asset
+ * do Saimo TV. Fixo em relação à viewport (`fixed`) para não repetir/
+ * cortar de forma estranha em páginas longas; aplicado uma vez no AppShell,
+ * nunca por página individual.
+ */
+.bg-cinematic {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 80% 50% at 15% -10%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 0%, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent),
+    var(--color-surface-base);
+}
+
+/* Trilho horizontal com scroll-snap: cada card "encaixa" ao parar de
+   rolar, e a barra de rolagem fica invisível sem perder a funcionalidade
+   nativa de teclado/trackpad (nenhum JS de carrossel customizado). */
+.content-rail {
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.content-rail::-webkit-scrollbar {
+  display: none;
+}
+.content-rail > * {
+  scroll-snap-align: start;
 }
 
 /* Foco visível e consistente em qualquer elemento interativo — acessibilidade

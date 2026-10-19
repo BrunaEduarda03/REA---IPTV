@@ -196,6 +196,146 @@ $ bun run build       → sucesso
 
 **Próximo passo:** aguardar aprovação explícita do usuário antes de iniciar a Sprint 06 (qualidade e entrega).
 
+## Correção pós-Sprint 05 — "a aplicação local está vazia" (fora do ciclo de sprints)
+
+**Contexto:** depois do relatório da Sprint 05, o usuário relatou que, ao abrir a aplicação localmente, "hoje no local está tudo vazio", e perguntou como filmes/séries seriam consumidos e como os canais rodam. Isso não era um pedido de sprint nova — era um bug real a investigar.
+
+**Diagnóstico (feito com dados reais, não suposição):**
+1. `curl http://localhost:3001/api/categories` e `/api/channels?pageSize=50` confirmaram que o backend **nunca** esteve vazio — 5 categorias, 20 canais, sempre devolvidos corretamente.
+2. A causa raiz real: `app/pages/HomePage.tsx` (rota `/`, a primeira tela que qualquer pessoa vê) ainda tinha o texto placeholder escrito na **Sprint 01**, nunca atualizado nas 4 sprints seguintes — "catálogo, busca e player chegam na Sprint 02 em diante" — sem nenhum link, nenhum destaque, nenhuma indicação de que era preciso clicar em "Catálogo" na barra lateral para ver qualquer conteúdo. Registrado como ADR-023.
+3. Pergunta legítima à parte: todos os 20 conteúdos fictícios, mesmo em categorias diferentes, reproduziam exatamente o mesmo vídeo de demonstração (decisão original da ADR-005) — o que reforçava a sensação de "vazio"/repetitivo ao navegar. Registrado como ADR-022.
+
+**Correções implementadas:**
+- `HomePage.tsx` reescrita: descrição real do estado atual da aplicação, botões para `/catalogo` e `/favoritos`, e uma seção "Em destaque" com os 4 canais `isFeatured`, buscados pela mesma API do catálogo (`useChannels`) — nunca mais um texto estático desatualizado.
+- `getDemoStreamUrl(categoryId)` (função pura, substitui a constante única `DEMO_STREAM_URL`): cada categoria aponta para um stream de demonstração diferente (3 streams distintos, todos no mesmo domínio já validado `test-streams.mux.dev`, reaproveitados entre as 5 categorias) — navegar entre categorias agora reproduz conteúdo visivelmente diferente.
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  12 pass, 0 fail
+apps/api:         14 pass, 0 fail
+apps/web:         73 pass, 0 fail  (5 novos: 2 HomePage + 3 getDemoStreamUrl)
+```
+Total: **99 testes, 99 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso
+```
+
+**Verificação end-to-end real:** (1) `/` aberta em Chromium real — screenshot confirmando título, CTAs e 4 cards em destaque, zero erros de console (a home deixou de parecer vazia); (2) captura de **rede real** comparando `/catalogo/ch-01` (categoria Documentários) com `/catalogo/ch-17` (categoria Ficção & Séries): confirmado que cada um baixa um manifesto HLS e segmentos de mídia **completamente diferentes** (`x36xhzz/...url_0/...ts` vs. `tos_ismc/tos_1080p/...m4s`+`init.mp4`), ambos HTTP 206, zero page errors — prova real de que categorias diferentes de fato reproduzem conteúdo diferente, não apenas por configuração no código.
+
+**Próximo passo:** segue aguardando aprovação explícita do usuário para a Sprint 06.
+
+## Integração TMDB (fora do ciclo de sprints) — metadados reais, com limite claro sobre conteúdo real
+
+**Contexto:** o usuário pediu para "não ter mais tudo mocado" e, inicialmente, pediu para remover as regras do laboratório e replicar o Saimo TV com conteúdo real (canais de TV, filmes, séries). Recusei alterar `AGENTS.md`/`CLAUDE.md` e replicar conteúdo protegido/sem licença — isso continua fora de escopo permanentemente, não por formalidade do markdown, mas porque envolveria distribuir conteúdo sem direito. Em vez disso, propus e o usuário aprovou: integrar a API real do TMDB (gratuita, com chave própria do usuário) para os 2 conteúdos do catálogo que já são filmes reais licenciados (Big Buck Bunny, Tears of Steel) — metadados reais, sem tocar em conteúdo protegido.
+
+**Funcionalidades concluídas:**
+- `tmdbClient.searchMovie` — cliente HTTP para a API pública do TMDB, com cache em memória, degradação graciosa total (nunca lança).
+- `catalogService.enrichChannel`/`enrichChannelsWithTmdb` — enriquece só os 2 canais marcados (`ch-01`, `ch-17`), aplicado depois da paginação.
+- Contrato compartilhado (`Channel.tmdb`) — ausente (fictício) / `null` (tentou, sem sucesso) / objeto (real).
+- `ChannelCard`/`ChannelDetailPage` — usam imagem de fundo, sinopse e ano reais quando presentes, com fallback para os dados fictícios; atribuição obrigatória do TMDB exibida quando aplicável.
+- `ch-01` renomeado de "Horizonte Azul" (fictício) para "Big Buck Bunny" (real); `ch-17` de "Estação Nova" para "Tears of Steel" (real) — os únicos 2 nomes fictícios trocados; os outros 18 continuam inventados.
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  15 pass, 0 fail  (3 novos: aceita tmdb ausente/null/preenchido)
+apps/api:         24 pass, 0 fail  (10 novos: 7 tmdbClient + 3 enriquecimento de catálogo)
+apps/web:         78 pass, 0 fail  (5 novos: 2 ChannelCard + 3 ChannelDetailPage)
+```
+Total: **117 testes, 117 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso
+```
+
+**Verificação end-to-end real, com a chave de API real do usuário (não simulada):**
+1. `curl http://localhost:3001/api/channels/ch-01` e `/ch-17` confirmaram `tmdbId`, `backdropUrl` e `releaseYear` reais vindos do TMDB de verdade.
+2. Encontrado em verificação real (não hipotético): a sinopse em português de "Big Buck Bunny" vem vazia do TMDB (tradução comunitária incompleta) — corrigido com fallback (`||` em vez de `??`, ADR-025), coberto por teste dedicado.
+3. Navegador real (`mcp__rea__capture_browser_scenario`): grade do catálogo mostrando as imagens fotográficas reais de "Big Buck Bunny"/"Tears of Steel" lado a lado com os ícones genéricos dos 18 canais fictícios; página de detalhe de "Tears of Steel" mostrando pôster real, ano (2012) e sinopse real em português. Zero erros de console, zero page errors.
+
+**Problemas encontrados e resolvidos:**
+1. Processos de dev server de uma sessão anterior continuavam rodando nas portas 3001/5173 com o `.env` antigo (sem a chave) já carregado em memória — a chave nova só passou a valer depois de matar os processos antigos e reiniciar (`lsof -ti:3001,5173 | xargs kill`). Lembrete registrado: variáveis de ambiente só são lidas na inicialização do processo, nunca recarregadas a quente.
+2. `overview` vazio do TMDB (ver ADR-025).
+
+**Próximo passo:** segue aguardando aprovação explícita do usuário para a Sprint 06.
+
+## `/filmes` — catálogo real, separado, navegável por gênero (fora do ciclo de sprints)
+
+**Contexto:** depois da integração TMDB, o usuário insistiu várias vezes para editar `AGENTS.md`/`CLAUDE.md` e replicar o catálogo real do Saimo TV (canais de TV, filmes/séries protegidos) — inclusive compartilhando uma chave de API de terceiro aparentemente extraída do bundle do Saimo TV via engenharia reversa. Recusei as duas coisas (editar as regras e usar a chave de terceiro) em todas as instâncias — não é uma questão de configuração, é uma questão de direito sobre o conteúdo. Propus, como alternativa construtiva, uma seção `/filmes` dedicada a conteúdo 100% real que já temos o direito de exibir (os curtas Creative Commons já em uso), com navegação por gênero real e ordenação por recência — o usuário aprovou essa direção.
+
+**Funcionalidades concluídas:**
+- Backend: `GET /api/movies` (filtro por gênero, ordenação `recent`/`title_asc`), `GET /api/movies/genres`, `GET /api/movies/:id`.
+- Acervo expandido de 2 para 4 curtas Creative Commons reais: Big Buck Bunny, Tears of Steel (já existentes), + Sintel e Elephants Dream (novos, via Internet Archive) — cada um com sua PRÓPRIA fonte de vídeo (não mais compartilhada por categoria).
+- `tmdbClient.ts` ganhou busca de gêneros reais (`getGenreMap`) e fallback de sinopse em inglês quando a tradução pt-BR vem vazia do TMDB.
+- Frontend: `/filmes` (grade + filtro de gênero real + ordenação) e `/filmes/:id` (player + sinopse + atribuição TMDB), nova entrada "Filmes" na navegação.
+- Corrigido: o aviso fixo do player ("não é o conteúdo real") era falso para `/filmes` — nova prop `isRealContent` no `VideoPlayer`.
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  22 pass, 0 fail  (7 novos: movieSchema + movieListQuerySchema)
+apps/api:         34 pass, 0 fail  (9 novos: rotas de /api/movies, com TMDB mockado via mock.module)
+apps/web:         95 pass, 0 fail  (17 novos: MovieCard, GenreFilter, SortControl, MoviesPage, MovieDetailPage, VideoPlayer isRealContent)
+```
+Total: **151 testes, 151 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso
+```
+
+**Verificação end-to-end real, com a chave de API real do usuário:**
+1. `curl http://localhost:3001/api/movies` confirmou os 4 filmes reais, com gêneros/pôster/ano/sinopse reais, ordenados corretamente por ano decrescente.
+2. Navegador real (`mcp__rea__capture_browser_scenario`): grade de `/filmes` com 4 pôsteres fotográficos reais; clique no filtro de gênero "Fantasia" reduzindo corretamente para só "Sintel"; detalhe de "Sintel" reproduzindo a fonte própria do filme (MP4 via Internet Archive — primeira vez que o `nativeAdapter` roda em E2E real, não só em teste unitário). Zero erros de console em todas as execuções.
+3. A verificação visual revelou o aviso incorreto do player (corrigido, ver acima) — outro caso de bug encontrado só pela verificação visual real, não pelos testes automatizados (que usam dados mockados e não teriam notado a inconsistência de copy).
+
+**Problemas encontrados e resolvidos:**
+1. Aviso fixo do `VideoPlayer` ("não é o conteúdo real") incorreto para `/filmes` — corrigido com prop `isRealContent`.
+2. `mock.module` (bun:test) precisou de um `await import("../../app")` DEPOIS do mock (não um import estático no topo do arquivo) para garantir que o mock fosse aplicado antes do grafo de módulos do app ser avaliado — confirmado, por execução real repetida, que o mock fica isolado por arquivo de teste (não vaza para `catalog.test.ts`).
+
+**Próximo passo:** segue aguardando aprovação explícita do usuário para a Sprint 06.
+
+## Sprint 02.5 — Visual Reverse Engineering ✅ Concluída (aguardando aprovação para Sprint 06)
+
+**Contexto:** prompt formal e detalhado do usuário (8 etapas, critérios de aceitação explícitos) pedindo correção da arquitetura visual — a aplicação funcionava, mas parecia um dashboard administrativo, não um catálogo de streaming. Full report em `docs/implementation/visual-audit.md`, `design-system.md` e `visual-regression.md`.
+
+**Funcionalidades concluídas:**
+- Levantamento visual real da referência (`saimo-tv.pages.dev/movies`) nos 4 viewports pedidos, via `mcp__rea__capture_browser_scenario` — nenhum CSS/asset copiado.
+- `AppShell` (substitui `PageShell`): navegação horizontal no desktop (`TopNavigation`), barra de abas no rodapé em telas estreitas (`MobileNavigation`) — `Sidebar.tsx`/`TopBar.tsx`/`app/store/uiStore.ts` removidos.
+- `PageHeader`, `ContentRail`, `MoviePosterCard` (pôster 2:3, substitui `MovieCard` 16:9), `MovieGrid`, `FeaturedSection` — todos novos.
+- Fundo cinematográfico original (`.bg-cinematic`, gradientes CSS, zero imagem).
+- TMDB: `posterUrl` (retrato) e `rating` adicionados a `TmdbMetadata`/`Movie`, ao lado do `backdropUrl` já existente.
+- `HomePage`/`CatalogPage`/`FavoritesPage` migradas para `PageHeader`; `HomePage` ganhou `ContentRail`.
+- 6 ícones SVG próprios (`components/ui/icons.tsx`) — sem nova dependência.
+
+**Testes executados (comandos reais, resultados reais):**
+```
+$ bun run test
+packages/shared:  22 pass, 0 fail  (posterUrl/rating nos schemas existentes)
+apps/api:         34 pass, 0 fail  (tmdbClient com poster_path/vote_average)
+apps/web:         99 pass, 0 fail  (AppShell substitui PageShell; MoviePosterCard substitui MovieCard; +2 testes de FeaturedSection)
+```
+Total: **155 testes, 155 passando, 0 falhando.**
+
+```
+$ bun run typecheck   → sem erros (3 pacotes)
+$ bun run lint        → sem erros (2 apps)
+$ bun run build       → sucesso
+```
+
+**Verificação end-to-end real (visual regression manual, ver `visual-regression.md`):** 9 capturas de navegador real (4 viewports da referência + 4 viewports locais + 1 recaptura pós-correção), zero erros de console/página em todas. Processo: capturar referência → capturar local → comparar → corrigir → recapturar.
+
+**Problema real encontrado e corrigido durante a própria verificação visual (não um teste automatizado):** o breakpoint de navegação (`md`, 768px) fazia a barra horizontal persistir em 768px, diferente da referência (que já troca para abas nesse viewport), e a logo quebrava em duas linhas. Corrigido trocando para `lg` (1024px) + `whitespace-nowrap`, recapturado e confirmado.
+
+**Próximo passo:** segue aguardando aprovação explícita do usuário para a Sprint 06. Implementada EXCLUSIVAMENTE a Sprint 02.5, conforme instrução — não avançado automaticamente.
+
 ## Sprint 06 — Qualidade e entrega
 
 *Ainda não iniciado.*

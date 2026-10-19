@@ -8,6 +8,12 @@ interface VideoPlayerProps {
   src: string;
   poster?: string;
   title: string;
+  /** `false` (padrão) para os canais fictícios do catálogo — a mídia
+   * reproduzida não é o conteúdo real do título. `true` para `/filmes`,
+   * onde a mídia reproduzida É o conteúdo real do título (um curta
+   * Creative Commons de verdade, não um placeholder) — mostrar o mesmo
+   * aviso ali seria simplesmente falso. */
+  isRealContent?: boolean;
 }
 
 const VOLUME_STEP = 0.1;
@@ -19,7 +25,7 @@ const VOLUME_STEP = 0.1;
  * controles normais — e traduz teclas (via `mapKeyToAction`, função pura)
  * em chamadas às ações já expostas pelo hook.
  */
-export function VideoPlayer({ src, poster, title }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, title, isRealContent = false }: VideoPlayerProps) {
   const { videoRef, state, play, pause, toggleMute, setVolume } = useVideoPlayer(src);
   const isTheaterMode = usePlayerUiStore((playerUi) => playerUi.isTheaterMode);
   const toggleTheaterMode = usePlayerUiStore((playerUi) => playerUi.toggleTheaterMode);
@@ -98,8 +104,11 @@ export function VideoPlayer({ src, poster, title }: VideoPlayerProps) {
       />
 
       <p className="text-xs text-text-muted">
-        Mídia de demonstração pública (não é o conteúdo real deste título fictício). Atalhos de teclado: clique no
-        vídeo e use espaço (play/pause), setas para cima/baixo (volume), M (mudo) e T (modo cinema).
+        {isRealContent
+          ? "Curta-metragem real, licenciado sob Creative Commons."
+          : "Mídia de demonstração pública (não é o conteúdo real deste título fictício)."}{" "}
+        Atalhos de teclado: clique no vídeo e use espaço (play/pause), setas para cima/baixo (volume), M (mudo) e
+        T (modo cinema).
       </p>
     </div>
   );

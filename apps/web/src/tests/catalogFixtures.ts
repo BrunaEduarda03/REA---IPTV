@@ -42,7 +42,15 @@ export function mockChannelListResponse(items: Channel[] = mockChannels): Channe
  * reutilizável em qualquer teste que precise simular a API sem subi-la de
  * verdade. `onChannels` permite customizar a resposta de /api/channels por
  * teste (ex.: lista vazia, erro). */
-export function mockCatalogFetch(options?: { onChannels?: (url: URL) => unknown; channelsStatus?: number }) {
+export function mockCatalogFetch(options?: {
+  onChannels?: (url: URL) => unknown;
+  channelsStatus?: number;
+  /** Substitui o canal devolvido por `/api/channels/:id` quando o id bater
+   * com `channelOverride.id` — usado para simular um canal com `tmdb`
+   * preenchido, sem precisar adicionar um canal fixo em `mockChannels`
+   * (que é compartilhado por muitos outros testes). */
+  channelOverride?: Channel;
+}) {
   return vi.fn(async (input: string | URL | Request) => {
     const url = new URL(String(input));
 
@@ -60,6 +68,9 @@ export function mockCatalogFetch(options?: { onChannels?: (url: URL) => unknown;
 
     const match = /\/api\/channels\/(.+)$/.exec(url.pathname);
     if (match) {
+      if (options?.channelOverride && options.channelOverride.id === match[1]) {
+        return jsonResponse(options.channelOverride);
+      }
       const channel = mockChannels.find((c) => c.id === match[1]);
       if (!channel) return jsonResponse({ error: "Não encontrado" }, 404);
       return jsonResponse(channel);
